@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>POSシステム</title>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0f1117;font-family:'Helvetica Neue',Arial,sans-serif;color:#e8eaf0;min-height:100vh;}
+input,select,button{font-family:inherit;font-size:14px;}
+button{cursor:pointer;border:none;border-radius:8px;font-weight:700;transition:opacity .15s;}
+button:disabled{opacity:0.4;cursor:not-allowed;}
+input,select{background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#e8eaf0;padding:8px 12px;width:100%;outline:none;}
+select option{background:#22263a;}
+.card{background:#1a1d27;border:1px solid #2e3250;border-radius:14px;padding:20px;}
+.btn-primary{background:#f5a623;color:#0f1117;padding:8px 16px;}
+.btn-ghost{background:#22263a;color:#e8eaf0;border:1px solid #2e3250;padding:8px 16px;}
+.btn-danger{background:#e05252;color:#fff;padding:8px 16px;}
+.btn-success{background:#4caf80;color:#0f1117;padding:8px 16px;}
+.btn-info{background:#5b8ef5;color:#fff;padding:8px 16px;}
+.badge{border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;display:inline-block;}
+h2{color:#e8eaf0;margin-bottom:20px;font-size:20px;}
+.grid-tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;}
+.grid-auto{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;}
+.spinner{width:40px;height:40px;border:4px solid #2e3250;border-top:4px solid #f5a623;border-radius:50%;animation:spin 1s linear infinite;margin:60px auto;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:24px;right:24px;background:#1a1d27;border-radius:10px;padding:12px 20px;font-weight:700;font-size:14px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px;animation:fadeIn .2s;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+nav{background:#1a1d27;border-bottom:1px solid #2e3250;padding:0 16px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.nav-btn{background:transparent;border:1px solid transparent;color:#9ca3af;padding:5px 10px;font-size:12px;border-radius:7px;position:relative;}
+.nav-btn.active{background:rgba(245,166,35,.13);border-color:#f5a623;color:#f5a623;}
+.badge-dot{position:absolute;top:-4px;right:-4px;background:#e05252;color:#fff;border-radius:99px;font-size:10px;font-weight:800;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px;}
+main{padding:24px;max-width:1200px;margin:0 auto;}
+.order-layout{display:flex;gap:16px;height:calc(100vh - 120px);}
+.menu-grid{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.menu-items{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-content:start;}
+.order-panel{width:300px;background:#1a1d27;border:1px solid #2e3250;border-radius:14px;display:flex;flex-direction:column;padding:16px;}
+.order-list{flex:1;overflow-y:auto;}
+.cat-btn{padding:6px 14px;border-radius:99px;border:1px solid #2e3250;background:transparent;color:#9ca3af;font-size:13px;font-weight:600;}
+.cat-btn.active{border-color:#f5a623;background:rgba(245,166,35,.13);color:#f5a623;}
+.menu-item{background:#1a1d27;border:1px solid #2e3250;border-radius:10px;padding:14px 12px;cursor:pointer;}
+.menu-item:hover{border-color:#f5a623;}
+.sep{border:none;border-top:1px solid #2e3250;margin:0;}
+details summary{cursor:pointer;list-style:none;}
+details summary::-webkit-details-marker{display:none;}
+::-webkit-scrollbar{width:6px;}
+::-webkit-scrollbar-track{background:#1a1d27;}
+::-webkit-scrollbar-thumb{background:#2e3250;border-radius:3px;}
+</style>
+</head>
+<body>
+<div id="app"><div class="spinner"></div></div>
+
+<script>
+// ═══════════════════════════════════════════
+// グローバル状態
+// ═══════════════════════════════════════════
+let sb = null; // supabase client
+let STATE = {
+  view: 'connect',
+  tables: [], menu: [], categories: [], shop: {name:'POSシステム'},
+  sales: [], cashLogs: [],
+  selId: null,
+  toasts: [],
+  loading: false,
+};
+
+// ═══════════════════════════════════════════
+// ヘルパー
+// ═══════════════════════════════════════════
+const DENOMS = [
+  {v:10000,l:'10,000円札',t:'bill'},{v:5000,l:'5,000円札',t:'bill'},
+  {v:2000,l:'2,000円札',t:'bill'},{v:1000,l:'1,000円札',t:'bill'},
+  {v:500,l:'500円硬貨',t:'coin'},{v:100,l:'100円硬貨',t:'coin'},
+  {v:50,l:'50円硬貨',t:'coin'},{v:10,l:'10円硬貨',t:'coin'},
+  {v:5,l:'5円硬貨',t:'coin'},{v:1,l:'1円硬貨',t:'coin'},
+];
+const emptyDenoms = () => Object.fromEntries(DENOMS.map(d=>[d.v,'']));
+const denomTotal = c => DENOMS.reduce((s,d)=>s+d.v*(Number(c[d.v])||0),0);
+const calcSub   = o => o.reduce((s,i)=>s+i.price*i.qty,0);
+const calcTax   = s => Math.floor(s*0.1);
+const calcTotal = s => s+calcTax(s);
+const fmt       = n => '¥'+Number(n).toLocaleString();
+const todayStr  = () => new Date().toLocaleDateString('sv-SE');
+const nowStr    = () => new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+function elapsed(t){if(!t)return'';const m=Math.floor((Date.now()-new Date(t))/60000);return m<60?m+'分':Math.floor(m/60)+'時間'+m%60+'分';}
+function padStr(str,w){let n=0;for(const c of str)n+=c.charCodeAt(0)>0x7f?2:1;return str+' '.repeat(Math.max(0,w-n));}
+
+const SC = {'空席':'#4caf80','使用中':'#5b8ef5','会計待ち':'#f5a623'};
+
+function badge(text, color){
+  return `<span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}55">${text}</span>`;
+}
+function btn(text, variant, onclick, extra='', disabled=false){
+  return `<button class="btn-${variant}" onclick="${onclick}" ${disabled?'disabled':''} ${extra}>${text}</button>`;
+}
+
+let toastTimer = null;
+function showToast(msg, type='ok'){
+  const color = type==='error'?'#e05252':'#4caf80';
+  const icon  = type==='error'?'❌':'✅';
+  const el = document.getElementById('toast-area');
+  if(el) el.innerHTML = `<div class="toast" style="color:${color};border:1px solid ${color}">${icon} ${msg}</div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ if(el) el.innerHTML=''; }, 3500);
+}
+
+// ═══════════════════════════════════════════
+// Supabase REST API（fetchベース・ライブラリ不使用）
+// ═══════════════════════════════════════════
+let SURL = ''; // https://xxx.supabase.co
+let SKEY = ''; // anon key
+
+function sfetch(table, opts={}){
+  const {select='*', filters=[], order=null, limit=null, method='GET', body=null, upsert=false} = opts;
+  let path = `${SURL}/rest/v1/${table}`;
+  const params = [];
+  if(method==='GET'){
+    if(select) params.push('select='+select);
+    filters.forEach(([col,op,val])=> params.push(`${col}=${op}.${encodeURIComponent(val)}`));
+    if(order) params.push('order='+order);
+    if(limit) params.push('limit='+limit);
+  } else {
+    filters.forEach(([col,op,val])=> params.push(`${col}=${op}.${encodeURIComponent(val)}`));
+  }
+  if(params.length) path += '?'+params.join('&');
+  const headers = {
+    'apikey': SKEY,
+    'Authorization': 'Bearer '+SKEY,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if(method==='POST') headers['Prefer'] = upsert ? 'resolution=merge-duplicates,return=representation' : 'return=representation';
+  if(method==='PATCH') headers['Prefer'] = 'return=representation';
+  return fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined })
+    .then(async r=>{ const d=await r.json(); if(!r.ok) throw new Error(d.message||JSON.stringify(d)); return d; });
+}
+
+// 便利ラッパー
+const sdb = {
+  get:    (t, filters=[], order=null, limit=null) => sfetch(t, {filters, order, limit}),
+  insert: (t, body)         => sfetch(t, {method:'POST', body}),
+  upsert: (t, body)         => sfetch(t, {method:'POST', body, upsert:true}),
+  update: (t, filters, body)=> sfetch(t, {method:'PATCH', filters, body}),
+  delete: (t, filters)      => sfetch(t, {method:'DELETE', filters}),
+};
+
+async function loadAll(){
+  const [tr,mn,ca,sa,cl,sh] = await Promise.all([
+    sdb.get('tables',[],'id'),
+    sdb.get('menu',[['active','eq','true']],'sort_order'),
+    sdb.get('categories',[],'sort_order'),
+    sdb.get('sales',[],'created_at.desc',500),
+    sdb.get('cash_logs',[],'date.desc'),
+    sdb.get('settings',[['key','eq','shop']]),
+  ]);
+  STATE.tables     = Array.isArray(tr)?tr:[];
+  STATE.menu       = Array.isArray(mn)?mn:[];
+  STATE.categories = Array.isArray(ca)?ca.map(r=>r.name):[];
+  STATE.sales      = Array.isArray(sa)?sa:[];
+  STATE.cashLogs   = Array.isArray(cl)?cl:[];
+  if(Array.isArray(sh)&&sh[0]) STATE.shop = JSON.parse(sh[0].value);
+}
+
+async function syncTable(id, patch){
+  STATE.tables = STATE.tables.map(t=>t.id===id?{...t,...patch}:t);
+  render();
+  await sdb.update('tables',[['id','eq',id]], patch);
+}
+
+// Realtime（WebSocket）
+let rtWs = null;
+function startRealtime(){
+  if(rtWs) try{rtWs.close();}catch(e){}
+  const wsUrl = SURL.replace('https://','wss://').replace('http://','ws://');
+  rtWs = new WebSocket(`${wsUrl}/realtime/v1/websocket?apikey=${SKEY}&vsn=1.0.0`);
+  let joined = false;
+  rtWs.onopen = ()=>{
+    rtWs.send(JSON.stringify({topic:'realtime:public:tables',event:'phx_join',payload:{config:{broadcast:{self:false},postgres_changes:[{event:'*',schema:'public',table:'tables'}]}},ref:'1'}));
+  };
+  rtWs.onmessage = e=>{
+    try{
+      const msg=JSON.parse(e.data);
+      if(msg.event==='postgres_changes'||msg?.payload?.data?.type){
+        sdb.get('tables',[],'id').then(d=>{ if(Array.isArray(d)){STATE.tables=d;render();} }).catch(()=>{});
+      }
+    }catch(e){}
+  };
+  rtWs.onerror = ()=>{};
+  // 30秒ごとにkeepалive
+  setInterval(()=>{ if(rtWs&&rtWs.readyState===1) rtWs.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:null})); },30000);
+}
+
+// ═══════════════════════════════════════════
+// ビュー: 接続設定
+// ═══════════════════════════════════════════
+function viewConnect(){
+  const url = localStorage.getItem('supa_url')||'';
+  const key = localStorage.getItem('supa_key')||'';
+  return `
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="card" style="width:100%;max-width:500px;padding:40px;">
+      <div style="text-align:center;margin-bottom:32px;">
+        <div style="font-size:48px;margin-bottom:12px;">⬡</div>
+        <div style="color:#f5a623;font-weight:900;font-size:26px;">POSシステム</div>
+        <div style="color:#9ca3af;font-size:14px;margin-top:6px;">Supabase接続設定</div>
+      </div>
+      <div style="background:#22263a;border-radius:10px;padding:16px;margin-bottom:24px;font-size:13px;color:#9ca3af;line-height:1.9;">
+        <strong style="color:#e8eaf0;">接続手順</strong><br>
+        1. <a href="https://supabase.com" target="_blank" style="color:#5b8ef5;">supabase.com</a> でプロジェクト作成<br>
+        2. SQL Editor でテーブル作成SQL・RLS無効化SQLを実行<br>
+        3. Project Settings → API でURLとキーをコピー<br>
+        4. 下に貼り付けて「接続する」を押す
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">Project URL</div>
+        <input id="inp-url" placeholder="https://xxxxxxxxxx.supabase.co" value="${url}">
+      </div>
+      <div style="margin-bottom:24px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">anon public キー</div>
+        <input id="inp-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value="${key}" style="font-size:11px;font-family:monospace;">
+      </div>
+      <div id="conn-error" style="color:#e05252;font-size:12px;margin-bottom:16px;padding:10px 14px;background:rgba(224,82,82,.1);border-radius:8px;display:none;white-space:pre-line;"></div>
+      <button class="btn-primary" onclick="doConnect()" style="width:100%;padding:13px 0;font-size:16px;" id="conn-btn">接続する</button>
+    </div>
+  </div>`;
+}
+
+async function doConnect(){
+  const url = document.getElementById('inp-url').value.trim().replace(/\/$/,'');
+  const key = document.getElementById('inp-key').value.trim();
+  const errEl = document.getElementById('conn-error');
+  const btnEl = document.getElementById('conn-btn');
+  errEl.style.display='none';
+  if(!url||!key){errEl.textContent='URLとキーを両方入力してください';errEl.style.display='block';return;}
+  btnEl.textContent='接続確認中…';btnEl.disabled=true;
+  try{
+    SURL = url; SKEY = key;
+    // 接続テスト
+    const res = await fetch(`${url}/rest/v1/settings?select=key&limit=1`, {
+      headers:{ 'apikey':key, 'Authorization':'Bearer '+key, 'Accept':'application/json' }
+    });
+    if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(d.message||'HTTP '+res.status); }
+    localStorage.setItem('supa_url', url);
+    localStorage.setItem('supa_key', key);
+    STATE.loading = true; STATE.view = 'tables'; render();
+    await loadAll();
+    startRealtime();
+    STATE.loading = false; render();
+  }catch(e){
+    SURL=''; SKEY='';
+    errEl.textContent='接続失敗: '+e.message+'\n\n・URLは https://xxxxx.supabase.co の形式ですか？\n・anon public キー（eyJ...）を使っていますか？\n・RLS無効化SQLは実行しましたか？';
+    errEl.style.display='block';
+    btnEl.textContent='接続する'; btnEl.disabled=false;
+  }
+}
+
+// ═══════════════════════════════════════════
+// ビュー: テーブル一覧
+// ═══════════════════════════════════════════
+function viewTables(){
+  const cards = STATE.tables.map(t=>{
+    const order = JSON.parse(t.order_json||'[]');
+    const color = SC[t.status]||'#6b7280';
+    return `<div class="card" onclick="selectTable('${t.id}')" style="border:2px solid ${color}55;cursor:pointer;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span style="color:#e8eaf0;font-weight:800;font-size:16px;line-height:1.3;">${t.name}</span>
+        <span style="color:#6b7280;font-size:11px;">${t.seats}席</span>
+      </div>
+      ${badge(t.status, color)}
+      ${t.status!=='空席'?`<div style="color:#9ca3af;font-size:11px;margin-top:6px;">${elapsed(t.opened_at)}</div>`:''}
+      ${t.status!=='空席'?`<div style="color:#f5a623;font-size:13px;margin-top:4px;font-weight:700;">${fmt(calcTotal(calcSub(order)))}</div>`:''}
+    </div>`;
+  }).join('');
+  return `<div><h2>テーブル一覧</h2><div class="grid-tables">${cards}</div></div>`;
+}
+
+async function selectTable(id){
+  const t = STATE.tables.find(t=>t.id===id);
+  if(t.status==='空席') await syncTable(id,{status:'使用中',opened_at:new Date().toISOString()});
+  STATE.selId = id;
+  STATE.view = 'order';
+  STATE.orderCat = 'すべて';
+  render();
+}
+
+// ═══════════════════════════════════════════
+// ビュー: 注文
+// ═══════════════════════════════════════════
+function viewOrder(){
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  if(!t) return '<p>テーブルが見つかりません</p>';
+  const order  = JSON.parse(t.order_json||'[]');
+  const cat    = STATE.orderCat||'すべて';
+  const cats   = ['すべて',...STATE.categories];
+  const filtered = cat==='すべて'?STATE.menu:STATE.menu.filter(m=>m.category===cat);
+  const pending  = order.filter(o=>!o.served);
+  const served   = order.filter(o=>o.served);
+  const sub      = calcSub(order);
+
+  const catBtns = cats.map(c=>`<button class="cat-btn ${cat===c?'active':''}" onclick="setOrderCat('${c}')">${c}</button>`).join('');
+  const menuItems = filtered.map(item=>`
+    <div class="menu-item" onclick="addItem(${JSON.stringify(JSON.stringify(item))})">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">${item.category}</div>
+      <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:6px;">${item.name}</div>
+      <div style="color:#f5a623;font-weight:800;">${fmt(item.price)}</div>
+    </div>`).join('');
+
+  const pendingRows = pending.map(item=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #2e3250;">
+      <div style="flex:1;">
+        <div style="color:#e8eaf0;font-size:13px;font-weight:600;">${item.name}</div>
+        <div style="color:#9ca3af;font-size:11px;">${fmt(item.price)} × ${item.qty}</div>
+      </div>
+      <div style="display:flex;gap:4px;align-items:center;">
+        <span style="color:#f5a623;font-weight:700;font-size:13px;">${fmt(item.price*item.qty)}</span>
+        <button style="background:rgba(76,175,128,.2);border:none;border-radius:5px;color:#4caf80;width:22px;height:22px;font-size:13px;padding:0;" onclick="markServed('${t.id}','${item.id}')">✓</button>
+        <button style="background:rgba(224,82,82,.2);border:none;border-radius:5px;color:#e05252;width:22px;height:22px;font-weight:800;font-size:13px;padding:0;" onclick="removeItem('${item.id}')">−</button>
+      </div>
+    </div>`).join('');
+
+  const servedRows = served.length>0?`
+    <details style="margin-top:8px;">
+      <summary style="color:#4caf80;font-size:11px;font-weight:700;">── 提供済み ${served.length}品 ──</summary>
+      ${served.map(item=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;opacity:0.55;border-bottom:1px solid #2e3250;">
+        <span style="color:#e8eaf0;text-decoration:line-through;">${item.name} × ${item.qty}</span>
+        <span style="color:#9ca3af;">${fmt(item.price*item.qty)}</span>
+      </div>`).join('')}
+    </details>`:'';
+
+  return `
+  <div class="order-layout">
+    <div class="menu-grid">
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">${catBtns}</div>
+      <div class="menu-items">${menuItems}</div>
+    </div>
+    <div class="order-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="color:#e8eaf0;font-weight:800;font-size:17px;">${t.name}</span>
+        ${badge(t.status, SC[t.status]||'#6b7280')}
+      </div>
+      <div class="order-list">
+        ${pending.length>0?'<div style="color:#f5a623;font-size:11px;font-weight:700;margin-bottom:6px;">── 未提供 ──</div>':''}
+        ${pendingRows}
+        ${servedRows}
+        ${order.length===0?'<div style="color:#6b7280;text-align:center;padding-top:40px;font-size:14px;">メニューをタップして追加</div>':''}
+      </div>
+      <div style="border-top:1px solid #2e3250;padding-top:12px;margin-top:12px;">
+        <div style="display:flex;justify-content:space-between;color:#9ca3af;font-size:13px;margin-bottom:4px;"><span>小計</span><span>${fmt(sub)}</span></div>
+        <div style="display:flex;justify-content:space-between;color:#9ca3af;font-size:13px;margin-bottom:10px;"><span>消費税（10%）</span><span>${fmt(calcTax(sub))}</span></div>
+        <div style="display:flex;justify-content:space-between;color:#e8eaf0;font-weight:800;font-size:18px;margin-bottom:14px;"><span>合計</span><span style="color:#f5a623;">${fmt(calcTotal(sub))}</span></div>
+        ${btn('会計へ進む','success','goCheckout()','style="width:100%;padding:12px 0;font-size:16px;"',order.length===0)}
+        ${btn('← 戻る','ghost','goBack()','style="width:100%;padding:10px 0;margin-top:8px;"')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function setOrderCat(c){STATE.orderCat=c;render();}
+
+async function addItem(jsonStr){
+  const item = JSON.parse(jsonStr);
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  const order = JSON.parse(t.order_json||'[]');
+  const ex = order.find(o=>o.id===item.id&&!o.served);
+  const newOrder = ex ? order.map(o=>o.id===item.id&&!o.served?{...o,qty:o.qty+1}:o) : [...order,{...item,qty:1,served:false}];
+  await syncTable(STATE.selId,{order_json:JSON.stringify(newOrder)});
+}
+async function removeItem(itemId){
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  const order = JSON.parse(t.order_json||'[]').map(o=>o.id===itemId&&!o.served?{...o,qty:o.qty-1}:o).filter(o=>o.qty>0);
+  await syncTable(STATE.selId,{order_json:JSON.stringify(order)});
+}
+async function markServed(tableId,itemId){
+  const t = STATE.tables.find(t=>t.id===tableId);
+  const order = JSON.parse(t.order_json||'[]').map(o=>String(o.id)===String(itemId)&&!o.served?{...o,served:true}:o);
+  await syncTable(tableId,{order_json:JSON.stringify(order)});
+}
+function goCheckout(){syncTable(STATE.selId,{status:'会計待ち'});STATE.view='checkout';STATE.checkoutMethod='現金';STATE.checkoutReceived='';render();}
+function goBack(){STATE.view='tables';STATE.selId=null;render();}
+
+// ═══════════════════════════════════════════
+// ビュー: 会計
+// ═══════════════════════════════════════════
+function viewCheckout(){
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  if(!t) return '';
+  const order  = JSON.parse(t.order_json||'[]');
+  const sub    = calcSub(order);
+  const tax    = calcTax(sub);
+  const total  = calcTotal(sub);
+  const method = STATE.checkoutMethod||'現金';
+  const recv   = Number(STATE.checkoutReceived)||0;
+  const change = recv - total;
+  const canPay = method!=='現金'||(recv>0&&change>=0);
+
+  const orderRows = order.map(item=>`
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #2e3250;font-size:14px;">
+      <span style="color:#e8eaf0;">${item.name} × ${item.qty}</span>
+      <span style="color:#9ca3af;">${fmt(item.price*item.qty)}</span>
+    </div>`).join('');
+
+  const methodBtns = ['現金','カード','QRコード'].map(m=>`
+    <button onclick="setMethod('${m}')" style="flex:1;padding:10px 0;border-radius:8px;border:2px solid ${method===m?'#f5a623':'#2e3250'};background:${method===m?'rgba(245,166,35,.13)':'transparent'};color:${method===m?'#f5a623':'#9ca3af'};font-weight:700;font-size:14px;">${m}</button>`).join('');
+
+  const cashSection = method==='現金'?`
+    <input type="number" id="recv-input" value="${STATE.checkoutReceived}" oninput="setReceived(this.value)" placeholder="受取金額" style="margin-bottom:8px;font-size:16px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      ${[1000,2000,5000,10000].map(v=>`<button class="btn-ghost" onclick="setReceived(${v})" style="padding:6px 12px;font-size:13px;">${fmt(v)}</button>`).join('')}
+    </div>
+    ${recv>0?`<div style="margin-top:8px;font-weight:800;font-size:20px;color:${change>=0?'#4caf80':'#e05252'};">${change>=0?'おつり: '+fmt(change):'金額が不足しています'}</div>`:''}
+  `:'';
+
+  return `
+  <div style="max-width:520px;margin:0 auto;">
+    <h2>会計 — ${t.name}</h2>
+    <div class="card" style="margin-bottom:16px;">
+      ${orderRows}
+      <div style="margin-top:14px;">
+        <div style="display:flex;justify-content:space-between;color:#9ca3af;font-size:13px;margin-bottom:4px;"><span>小計</span><span>${fmt(sub)}</span></div>
+        <div style="display:flex;justify-content:space-between;color:#9ca3af;font-size:13px;margin-bottom:10px;"><span>消費税（10%）</span><span>${fmt(tax)}</span></div>
+        <div style="display:flex;justify-content:space-between;color:#f5a623;font-weight:800;font-size:22px;"><span>合計</span><span>${fmt(total)}</span></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div style="color:#9ca3af;font-size:13px;margin-bottom:10px;">支払い方法</div>
+      <div style="display:flex;gap:10px;margin-bottom:16px;">${methodBtns}</div>
+      ${cashSection}
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="color:#e8eaf0;font-weight:700;font-size:15px;">🖨 領収書印刷（Epson TM Print）</div>
+        <button class="btn-info" onclick="doPrint()" style="padding:10px 18px;" ${!canPay?'disabled':''}>印刷</button>
+      </div>
+      <div id="print-status"></div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      ${btn('← 戻る','ghost','STATE.view="order";render()','style="flex:1;padding:12px 0;"')}
+      <button class="btn-success" onclick="doComplete()" style="flex:2;padding:12px 0;font-size:16px;" ${!canPay?'disabled':''} id="complete-btn">決済完了</button>
+    </div>
+  </div>`;
+}
+
+function setMethod(m){STATE.checkoutMethod=m;STATE.checkoutReceived='';render();}
+function setReceived(v){STATE.checkoutReceived=v;const el=document.getElementById('recv-input');if(el)el.value=v;const t=STATE.tables.find(t=>t.id===STATE.selId);if(t){const order=JSON.parse(t.order_json||'[]');const total=calcTotal(calcSub(order));const change=Number(v)-total;const area=document.querySelector('.change-display');}}
+
+async function doPrint(){
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  const order = JSON.parse(t.order_json||'[]');
+  const sub=calcSub(order),tax=calcTax(sub),total=calcTotal(sub);
+  const method=STATE.checkoutMethod||'現金';
+  const change=Number(STATE.checkoutReceived)-total;
+  const lines=['================================',`　　${STATE.shop.name}`,'================================',
+    STATE.shop.address||'',`TEL: ${STATE.shop.tel||''}`,`登録番号: ${STATE.shop.registrationNo||''}`,
+    '--------------------------------','　　　領　収　書',nowStr(),`テーブル: ${t.name}`,'--------------------------------',
+    ...order.map(i=>`${padStr(i.name,14)} ×${i.qty} ${fmt(i.price*i.qty)}`),
+    '--------------------------------',`${padStr('小計',12)}${fmt(sub)}`,`${padStr('消費税(10%)',12)}${fmt(tax)}`,
+    '================================',`${padStr('合　計',12)}${fmt(total)}`,`${padStr('お支払い',12)}${method}`,
+    ...(method==='現金'&&change>=0?[`${padStr('お釣り',12)}${fmt(change)}`]:[]),
+    '--------------------------------',`　${STATE.shop.message||''}`,''
+  ];
+  const text = lines.join('\n');
+  const el = document.getElementById('print-status');
+  try{
+    await navigator.clipboard.writeText(text);
+    if(el) el.innerHTML='<div style="color:#5b8ef5;font-size:12px;padding:8px 12px;background:rgba(91,142,245,.1);border-radius:8px;">📋 クリップボードにコピーしました。Epson TM Printアプリに貼り付けて印刷してください。</div>';
+  }catch(e){
+    if(el) el.innerHTML=`<div style="color:#e05252;font-size:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ ${e.message}</div>`;
+  }
+}
+
+async function doComplete(){
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  const order = JSON.parse(t.order_json||'[]');
+  const sub=calcSub(order),tax=calcTax(sub),total=calcTotal(sub);
+  const method=STATE.checkoutMethod||'現金';
+  document.getElementById('complete-btn').disabled=true;
+  document.getElementById('complete-btn').textContent='処理中…';
+  await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order)});
+  await syncTable(STATE.selId,{status:'空席',order_json:'[]',opened_at:null});
+  const r = await sdb.get('sales',[],'created_at.desc',500);
+  if(Array.isArray(r)) STATE.sales=r;
+  showToast(t.name+' の会計が完了しました');
+  STATE.view='tables'; STATE.selId=null;
+  render();
+}
+
+// ═══════════════════════════════════════════
+// ビュー: 注文一覧
+// ═══════════════════════════════════════════
+function viewOrderList(){
+  const active = STATE.tables.filter(t=>t.status!=='空席'&&JSON.parse(t.order_json||'[]').length>0);
+  if(!active.length) return '<div><h2>注文一覧</h2><div class="card"><div style="color:#6b7280;text-align:center;padding:32px 0;">現在注文はありません</div></div></div>';
+  const cards = active.map(t=>{
+    const order=JSON.parse(t.order_json||'[]');
+    const pending=order.filter(o=>!o.served);
+    const served=order.filter(o=>o.served);
+    const borderColor=pending.length>0?'rgba(245,166,35,.3)':'rgba(76,175,128,.3)';
+    const pendingRows=pending.map(item=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #2e3250;">
+        <div><span style="color:#e8eaf0;font-weight:600;font-size:14px;">${item.name}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">× ${item.qty}</span></div>
+        <button onclick="markServed('${t.id}','${item.id}')" style="background:rgba(76,175,128,.2);border:1px solid rgba(76,175,128,.3);border-radius:7px;color:#4caf80;padding:5px 14px;font-weight:700;font-size:13px;">✓ 提供済み</button>
+      </div>`).join('');
+    const servedDetails=served.length>0?`<details style="margin-top:8px;"><summary style="color:#9ca3af;font-size:12px;">提供済み ${served.length}品</summary>${served.map(i=>`<div style="font-size:13px;opacity:.55;padding:3px 0;color:#e8eaf0;text-decoration:line-through;">${i.name} × ${i.qty}</div>`).join('')}</details>`:'';
+    return `<div class="card" style="border:1px solid ${borderColor};">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#e8eaf0;font-weight:800;font-size:16px;">${t.name}</span>
+          ${badge(t.status,SC[t.status]||'#6b7280')}
+        </div>
+        <div style="display:flex;gap:6px;">
+          ${pending.length>0?badge('未提供 '+pending.length,'#f5a623'):''}
+          ${served.length>0?badge('提供済 '+served.length,'#4caf80'):''}
+        </div>
+      </div>
+      ${pendingRows}${servedDetails}
+      <button class="btn-ghost" onclick="goToTable('${t.id}')" style="width:100%;padding:8px 0;font-size:13px;margin-top:10px;">→ 注文画面を開く</button>
+    </div>`;
+  }).join('');
+  return `<div><h2>注文一覧</h2><div class="grid-auto">${cards}</div></div>`;
+}
+function goToTable(id){STATE.selId=id;STATE.view='order';render();}
+
+// ═══════════════════════════════════════════
+// ビュー: 売上管理
+// ═══════════════════════════════════════════
+function viewSales(){
+  const tab = STATE.salesTab||'daily';
+  const sales = STATE.sales;
+  const dailyMap={},monthlyMap={},hourlyMap={},itemMap={};
+  sales.forEach(s=>{
+    const dk=(s.created_at||'').slice(0,10);
+    const mk=dk.slice(0,7),h=new Date(s.created_at||Date.now()).getHours();
+    if(!dailyMap[dk])dailyMap[dk]={total:0,count:0,cash:0,card:0,qr:0};
+    if(!monthlyMap[mk])monthlyMap[mk]={total:0,count:0};
+    if(!hourlyMap[h])hourlyMap[h]={total:0,count:0};
+    dailyMap[dk].total+=s.total;dailyMap[dk].count++;
+    if(s.method==='現金')dailyMap[dk].cash+=s.total;
+    if(s.method==='カード')dailyMap[dk].card+=s.total;
+    if(s.method==='QRコード')dailyMap[dk].qr+=s.total;
+    monthlyMap[mk].total+=s.total;monthlyMap[mk].count++;
+    hourlyMap[h].total+=s.total;hourlyMap[h].count++;
+    JSON.parse(s.items_json||'[]').forEach(i=>{
+      if(!itemMap[i.name])itemMap[i.name]={total:0,qty:0};
+      itemMap[i.name].total+=i.price*i.qty;itemMap[i.name].qty+=i.qty;
+    });
+  });
+  const today=todayStr();
+  const todayTotal=dailyMap[today]?.total||0;
+  const monthTotal=monthlyMap[today.slice(0,7)]?.total||0;
+  const totalAll=sales.reduce((a,s)=>a+s.total,0);
+
+  function hbar(label,value,maxVal,sub,color='#f5a623',lw=90){
+    const pct=maxVal>0?(value/maxVal)*100:0;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+      <span style="color:#9ca3af;font-size:12px;width:${lw}px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>
+      <div style="flex:1;background:#22263a;border-radius:6px;height:22px;overflow:hidden;">
+        <div style="width:${pct}%;background:linear-gradient(90deg,${color},${color}99);height:100%;border-radius:6px;display:flex;align-items:center;padding-left:${pct>15?8:0}px;min-width:${value>0?4:0}px;">
+          ${pct>18?`<span style="color:#0f1117;font-size:11px;font-weight:700;white-space:nowrap;">${fmt(value)}</span>`:''}
+        </div>
+      </div>
+      <span style="color:#9ca3af;font-size:11px;width:46px;text-align:right;flex-shrink:0;">${sub}</span>
+    </div>`;
+  }
+
+  const kpis = [
+    {label:'本日の売上',value:fmt(todayTotal),color:'#f5a623'},
+    {label:'今月の売上',value:fmt(monthTotal),color:'#5b8ef5'},
+    {label:'累計売上',value:fmt(totalAll),color:'#4caf80'},
+    {label:'累計件数',value:sales.length+'件',color:'#9b7fe8'},
+  ].map(c=>`<div class="card"><div style="color:#9ca3af;font-size:12px;margin-bottom:6px;">${c.label}</div><div style="color:${c.color};font-weight:800;font-size:22px;">${c.value}</div></div>`).join('');
+
+  const TABS=[['daily','📅 日次'],['monthly','📆 月次'],['hourly','🕐 時間帯'],['items','🍽 商品別']];
+  const tabBtns=TABS.map(([k,l])=>`<button onclick="STATE.salesTab='${k}';render()" style="padding:8px 16px;border-radius:8px;border:1px solid ${tab===k?'#f5a623':'#2e3250'};background:${tab===k?'rgba(245,166,35,.13)':'transparent'};color:${tab===k?'#f5a623':'#9ca3af'};font-weight:600;font-size:13px;">${l}</button>`).join('');
+
+  let content='';
+  if(tab==='daily'){
+    const rows=Object.entries(dailyMap).sort((a,b)=>b[0].localeCompare(a[0]));
+    const max=Math.max(...rows.map(r=>r[1].total),1);
+    const bars=rows.slice(0,14).map(([k,v])=>hbar(k,v.total,max,`${v.count}件`,'#f5a623',95)).join('');
+    const detail=rows.map(([k,v])=>`<div style="padding:10px 0;border-bottom:1px solid #2e3250;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#e8eaf0;font-weight:700;">${k}</span><span style="color:#f5a623;font-weight:800;font-size:17px;">${fmt(v.total)}</span></div>
+      <div style="display:flex;gap:16px;font-size:12px;"><span style="color:#9ca3af;">${v.count}件</span>${v.cash>0?`<span style="color:#4caf80;">現金 ${fmt(v.cash)}</span>`:''}${v.card>0?`<span style="color:#5b8ef5;">カード ${fmt(v.card)}</span>`:''}${v.qr>0?`<span style="color:#9b7fe8;">QR ${fmt(v.qr)}</span>`:''}</div>
+    </div>`).join('');
+    content=`<div class="card" style="margin-bottom:16px;"><div style="font-weight:700;margin-bottom:16px;">日次売上グラフ（直近14日）</div>${rows.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>
+    <div class="card"><div style="font-weight:700;margin-bottom:14px;">日別明細</div>${rows.length?detail:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
+  }else if(tab==='monthly'){
+    const rows=Object.entries(monthlyMap).sort((a,b)=>b[0].localeCompare(a[0]));
+    const max=Math.max(...rows.map(r=>r[1].total),1);
+    const bars=rows.slice(0,12).map(([k,v])=>hbar(k,v.total,max,`${v.count}件`,'#5b8ef5',80)).join('');
+    content=`<div class="card"><div style="font-weight:700;margin-bottom:16px;">月次売上グラフ</div>${rows.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
+  }else if(tab==='hourly'){
+    const rows=Array.from({length:24},(_,h)=>[String(h).padStart(2,'0')+':00',hourlyMap[h]||{total:0,count:0}]);
+    const max=Math.max(...rows.map(r=>r[1].total),1);
+    const peak=rows.reduce((a,r)=>r[1].total>a[1].total?r:a,['',{total:0}])[0];
+    const bars=rows.map(([h,v])=>hbar(h,v.total,max,v.count>0?`${v.count}件`:'',h===peak?'#e05252':'#f5a623',50)).join('');
+    content=`<div class="card"><div style="font-weight:700;margin-bottom:16px;">時間帯別売上</div>${sales.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
+  }else if(tab==='items'){
+    const rows=Object.entries(itemMap).sort((a,b)=>b[1].total-a[1].total);
+    const max=Math.max(...rows.map(r=>r[1].total),1);
+    const rankColors=['#f5a623','#5b8ef5','#4caf80'];
+    const items=rows.map(([name,v],i)=>`<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <div style="display:flex;align-items:center;gap:8px;"><span style="color:${i<3?'#f5a623':'#9ca3af'};font-weight:700;width:20px;">#${i+1}</span><span style="color:#e8eaf0;font-weight:600;">${name}</span></div>
+        <div><span style="color:#f5a623;font-weight:800;font-size:15px;">${fmt(v.total)}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">${v.qty}個</span></div>
+      </div>
+      <div style="background:#22263a;border-radius:6px;height:8px;overflow:hidden;"><div style="width:${(v.total/max)*100}%;background:${rankColors[i]||'rgba(107,114,128,.5)'};height:100%;border-radius:6px;"></div></div>
+    </div>`).join('');
+    content=`<div class="card"><div style="font-weight:700;margin-bottom:14px;">商品別売上ランキング</div>${rows.length?items:'<div style="color:#6b7280;font-size:13px;text-align:center;padding:32px 0;">データなし</div>'}</div>`;
+  }
+
+  return `<div><h2>売上管理</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:24px;">${kpis}</div>
+    <div style="display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;">${tabBtns}</div>
+    ${content}</div>`;
+}
+
+// ═══════════════════════════════════════════
+// ビュー: レジ金管理
+// ═══════════════════════════════════════════
+function viewCash(){
+  if(!window._cashState){
+    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',closeCounts:emptyDenoms(),transfers:[],txType:'out',txAmount:'',txNote:''};
+  }
+  const cs = window._cashState;
+  const today=todayStr();
+  const todayLog=STATE.cashLogs.find(l=>l.date===today);
+  const prevLog=[...STATE.cashLogs].sort((a,b)=>b.date.localeCompare(a.date)).find(l=>l.date!==today&&l.closed_at);
+  if(prevLog&&prevLog.close_counts&&!cs._inheritDone){
+    cs.openCounts=JSON.parse(typeof prevLog.close_counts==='string'?prevLog.close_counts:'{}');
+    cs._inheritDone=true;
+  }
+  const cashSalesToday=STATE.sales.filter(s=>(s.created_at||'').startsWith(today)&&s.method==='現金').reduce((a,s)=>a+s.total,0);
+  const isOpen=todayLog&&!todayLog.closed_at;
+  const isClosed=todayLog&&todayLog.closed_at;
+  const transferNet=cs.transfers.reduce((s,t)=>t.type==='in'?s+t.amount:s-t.amount,0);
+  const openAmt=todayLog?.open_amount||0;
+  const expected=openAmt+cashSalesToday+transferNet;
+  const closeAmt=denomTotal(cs.closeCounts);
+  const diff=closeAmt-expected;
+
+  function denomRows(counts,onChange){
+    const bills=DENOMS.filter(d=>d.t==='bill').map(d=>`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="color:#e8eaf0;font-size:13px;width:110px;flex-shrink:0;">${d.l}</span>
+        <input type="number" min="0" value="${counts[d.v]||''}" oninput="${onChange}(${d.v},this.value)" style="width:72px;text-align:right;padding:6px 10px;" placeholder="0">
+        <span style="color:#9ca3af;font-size:12px;width:16px;">枚</span>
+        <span style="color:#9ca3af;font-size:13px;width:90px;text-align:right;">${Number(counts[d.v])>0?fmt(d.v*Number(counts[d.v])):''}</span>
+      </div>`).join('');
+    const coins=DENOMS.filter(d=>d.t==='coin').map(d=>`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="color:#e8eaf0;font-size:13px;width:110px;flex-shrink:0;">${d.l}</span>
+        <input type="number" min="0" value="${counts[d.v]||''}" oninput="${onChange}(${d.v},this.value)" style="width:72px;text-align:right;padding:6px 10px;" placeholder="0">
+        <span style="color:#9ca3af;font-size:12px;width:16px;">枚</span>
+        <span style="color:#9ca3af;font-size:13px;width:90px;text-align:right;">${Number(counts[d.v])>0?fmt(d.v*Number(counts[d.v])):''}</span>
+      </div>`).join('');
+    return `<div style="color:#f5a623;font-size:11px;font-weight:700;margin-bottom:6px;">── 紙　幣 ──</div>${bills}
+      <div style="color:#5b8ef5;font-size:11px;font-weight:700;margin:10px 0 6px;">── 硬　貨 ──</div>${coins}`;
+  }
+
+  const tabBtns=[['today','📋 本日'],['history','🗂 履歴']].map(([k,l])=>`<button onclick="window._cashState.tab='${k}';render()" style="padding:8px 18px;border-radius:8px;border:1px solid ${cs.tab===k?'#f5a623':'#2e3250'};background:${cs.tab===k?'rgba(245,166,35,.13)':'transparent'};color:${cs.tab===k?'#f5a623':'#9ca3af'};font-weight:600;font-size:14px;">${l}</button>`).join('');
+
+  let content='';
+  if(cs.tab==='today'){
+    const kpis=[
+      {label:'開店両替金',value:todayLog?fmt(openAmt):'未登録',color:'#5b8ef5'},
+      {label:'現金売上',value:fmt(cashSalesToday),color:'#4caf80'},
+      {label:'移動合計',value:(transferNet>=0?'+':'')+fmt(Math.abs(transferNet)),color:'#6b7280'},
+      {label:'理論残高',value:todayLog?fmt(expected):'—',color:'#f5a623'},
+    ].map(c=>`<div class="card" style="padding:14px 16px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">${c.label}</div><div style="color:${c.color};font-weight:800;font-size:17px;">${c.value}</div></div>`).join('');
+
+    if(!todayLog){
+      const inheritMsg=prevLog?`<div style="color:#4caf80;font-size:12px;margin-bottom:14px;padding:8px 12px;background:rgba(76,175,128,.1);border-radius:8px;">✅ 前日（${prevLog.date}）の閉店額 <strong>${fmt(prevLog.close_amount)}</strong> を引き継ぎました</div>`:'';
+      content=`
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
+        <div class="card" style="margin-bottom:16px;">
+          <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:6px;">🌅 開店両替金を登録</div>
+          ${inheritMsg}
+          ${denomRows(cs.openCounts,'updateOpenCount')}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
+            <span style="color:#e8eaf0;font-weight:700;font-size:15px;">合　計</span>
+            <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(denomTotal(cs.openCounts))}</span>
+          </div>
+          <input placeholder="メモ（任意）" value="${cs.openNote}" oninput="window._cashState.openNote=this.value" style="margin-top:12px;">
+          <button class="btn-primary" onclick="doOpenRegister()" style="width:100%;padding:12px 0;margin-top:14px;" ${denomTotal(cs.openCounts)===0?'disabled':''}>開店記録を登録</button>
+        </div>`;
+    }else if(isOpen){
+      const txRows=cs.transfers.map(t=>`
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;">
+          <div style="display:flex;gap:10px;">
+            <span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span>
+            <span style="color:#e8eaf0;">${fmt(t.amount)}</span>
+            ${t.note?`<span style="color:#9ca3af;">${t.note}</span>`:''}
+          </div>
+          <button onclick="removeTx(${t.id})" style="background:none;border:none;color:#e05252;font-size:16px;padding:0;">✕</button>
+        </div>`).join('');
+
+      const checkRows=[
+        {label:'開店両替金',value:fmt(openAmt),color:'#5b8ef5'},
+        {label:'現金売上',value:fmt(cashSalesToday),color:'#4caf80'},
+        {label:'レジ金移動',value:(transferNet>=0?'+':'')+fmt(Math.abs(transferNet)),color:'#6b7280'},
+        {label:'理論残高',value:fmt(expected),color:'#f5a623'},
+        {label:'実査額',value:fmt(closeAmt),color:'#e8eaf0'},
+      ].map(r=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;"><span style="color:#9ca3af;">${r.label}</span><span style="color:${r.color};font-weight:600;">${r.value}</span></div>`).join('');
+
+      content=`
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
+        <div class="card" style="margin-bottom:16px;border:1px solid rgba(91,142,245,.2);">
+          <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:14px;">💸 レジ金移動</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+            <div>
+              <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">種別</div>
+              <div style="display:flex;gap:6px;">
+                <button onclick="window._cashState.txType='out';render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txType==='out'?'#e05252':'#2e3250'};background:${cs.txType==='out'?'rgba(224,82,82,.13)':'transparent'};color:${cs.txType==='out'?'#e05252':'#9ca3af'};font-weight:700;font-size:13px;">▼ 出金</button>
+                <button onclick="window._cashState.txType='in';render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txType==='in'?'#4caf80':'#2e3250'};background:${cs.txType==='in'?'rgba(76,175,128,.13)':'transparent'};color:${cs.txType==='in'?'#4caf80':'#9ca3af'};font-weight:700;font-size:13px;">▲ 入金</button>
+              </div>
+            </div>
+            <div style="flex:1;min-width:110px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">金額</div><input type="number" min="0" value="${cs.txAmount}" oninput="window._cashState.txAmount=this.value" placeholder="0"></div>
+            <div style="flex:2;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メモ</div><input value="${cs.txNote}" oninput="window._cashState.txNote=this.value" placeholder="例: 両替"></div>
+            <button class="btn-ghost" onclick="addTx()" style="padding:8px 16px;" ${!cs.txAmount||Number(cs.txAmount)<=0?'disabled':''}>追加</button>
+          </div>
+          ${cs.transfers.length>0?`<div style="border-top:1px solid #2e3250;padding-top:10px;">${txRows}</div>`:''}
+        </div>
+        <div class="card" style="border:1px solid rgba(245,166,35,.2);">
+          <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:16px;">🌙 閉店 — レジ内現金を実査</div>
+          ${denomRows(cs.closeCounts,'updateCloseCount')}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
+            <span style="color:#e8eaf0;font-weight:700;font-size:15px;">合　計</span>
+            <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(closeAmt)}</span>
+          </div>
+          ${closeAmt>0?`
+            <div style="margin-top:16px;padding:16px;background:#22263a;border-radius:10px;">
+              <div style="color:#e8eaf0;font-weight:700;font-size:14px;margin-bottom:12px;">過不足チェック</div>
+              ${checkRows}
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;">
+                <span style="color:#e8eaf0;font-weight:800;font-size:16px;">過不足</span>
+                <span style="font-weight:900;font-size:26px;color:${diff===0?'#4caf80':diff>0?'#5b8ef5':'#e05252'};">${diff===0?'± 0':(diff>0?'+':'')+fmt(diff)}</span>
+              </div>
+            </div>`:''}
+          <button class="btn-danger" onclick="doCloseRegister()" style="width:100%;padding:12px 0;margin-top:14px;font-size:15px;" ${closeAmt===0?'disabled':''}>閉店処理を確定</button>
+        </div>`;
+    }else if(isClosed){
+      const rows2=[
+        {label:'開店両替金',value:fmt(todayLog.open_amount||0),color:'#5b8ef5'},
+        {label:'現金売上',value:fmt(todayLog.cash_sales||0),color:'#4caf80'},
+        {label:'実査額',value:fmt(todayLog.close_amount||0),color:'#e8eaf0'},
+      ].map(r=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #2e3250;font-size:14px;"><span style="color:#9ca3af;">${r.label}</span><span style="color:${r.color};font-weight:600;">${r.value}</span></div>`).join('');
+      content=`
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
+        <div class="card">
+          <div style="color:#e8eaf0;font-weight:700;font-size:16px;margin-bottom:16px;">✅ 本日の閉店集計</div>
+          ${rows2}
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;">
+            <span style="color:#e8eaf0;font-weight:800;font-size:16px;">過不足</span>
+            <span style="font-weight:900;font-size:28px;color:${todayLog.diff===0?'#4caf80':todayLog.diff>0?'#5b8ef5':'#e05252'};">${todayLog.diff===0?'± 0':(todayLog.diff>0?'+':'')+fmt(todayLog.diff)}</span>
+          </div>
+          <div style="margin-top:14px;color:#5b8ef5;font-size:13px;padding:8px 12px;background:rgba(91,142,245,.1);border-radius:8px;">📋 明日の開店時に閉店額（${fmt(todayLog.close_amount)}）が自動で引き継がれます</div>
+        </div>`;
+    }
+  }else{
+    const logs=[...STATE.cashLogs].sort((a,b)=>b.date.localeCompare(a.date));
+    content=logs.length===0?'<div class="card"><div style="color:#6b7280;font-size:14px;">まだ記録がありません</div></div>':logs.map(log=>`
+      <div class="card" style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div><div style="color:#e8eaf0;font-weight:700;margin-bottom:6px;">${log.date}</div>
+            <div style="display:flex;gap:14px;font-size:13px;flex-wrap:wrap;">
+              <span style="color:#9ca3af;">両替金 <span style="color:#5b8ef5;font-weight:600;">${fmt(log.open_amount||0)}</span></span>
+              <span style="color:#9ca3af;">現金売上 <span style="color:#4caf80;font-weight:600;">${fmt(log.cash_sales||0)}</span></span>
+            </div>
+          </div>
+          ${log.closed_at?`<div style="text-align:right;"><div style="font-size:11px;color:#9ca3af;margin-bottom:2px;">過不足</div><div style="font-weight:900;font-size:22px;color:${log.diff===0?'#4caf80':log.diff>0?'#5b8ef5':'#e05252'};">${log.diff===0?'± 0':(log.diff>0?'+':'')+fmt(log.diff)}</div></div>`:badge('営業中','#f5a623')}
+        </div>
+      </div>`).join('');
+  }
+
+  return `<div style="max-width:760px;"><h2>レジ金管理</h2><div style="display:flex;gap:6px;margin-bottom:20px;">${tabBtns}</div>${content}</div>`;
+}
+
+function updateOpenCount(v,val){window._cashState.openCounts[v]=val;render();}
+function updateCloseCount(v,val){window._cashState.closeCounts[v]=val;render();}
+function addTx(){
+  const cs=window._cashState;
+  if(!cs.txAmount||Number(cs.txAmount)<=0)return;
+  cs.transfers.push({id:Date.now(),type:cs.txType,amount:Number(cs.txAmount),note:cs.txNote});
+  cs.txAmount='';cs.txNote='';render();
+}
+function removeTx(id){window._cashState.transfers=window._cashState.transfers.filter(t=>t.id!==id);render();}
+async function doOpenRegister(){
+  const cs=window._cashState;
+  const amount=denomTotal(cs.openCounts);if(amount===0)return;
+  await sdb.insert('cash_logs',{date:todayStr(),open_amount:amount,open_counts:JSON.stringify(cs.openCounts),note:cs.openNote,opened_at:new Date().toISOString()});
+  const r=await sdb.get('cash_logs',[],'date.desc');
+  if(Array.isArray(r))STATE.cashLogs=r;
+  render();
+}
+async function doCloseRegister(){
+  const cs=window._cashState;
+  const today=todayStr();
+  const todayLog=STATE.cashLogs.find(l=>l.date===today);
+  if(!todayLog)return;
+  const closeAmt=denomTotal(cs.closeCounts);
+  const cashSalesToday=STATE.sales.filter(s=>(s.created_at||'').startsWith(today)&&s.method==='現金').reduce((a,s)=>a+s.total,0);
+  const transferNet=cs.transfers.reduce((s,t)=>t.type==='in'?s+t.amount:s-t.amount,0);
+  const expected=(todayLog.open_amount||0)+cashSalesToday+transferNet;
+  const diff=closeAmt-expected;
+  await sdb.update('cash_logs',[['date','eq',today]],{close_amount:closeAmt,close_counts:JSON.stringify(cs.closeCounts),cash_sales:cashSalesToday,transfer_net:transferNet,transfers_json:JSON.stringify(cs.transfers),diff,closed_at:new Date().toISOString()});
+  const r=await sdb.get('cash_logs',[],'date.desc');
+  if(Array.isArray(r))STATE.cashLogs=r;
+  render();
+}
+
+// ═══════════════════════════════════════════
+// ビュー: メニュー管理
+// ═══════════════════════════════════════════
+function viewMenu(){
+  if(!window._menuState) window._menuState={editId:null,form:{name:'',price:'',category:STATE.categories[0]||''},newCat:'',error:''};
+  const ms=window._menuState;
+  const catTags=STATE.categories.map(c=>`
+    <div style="display:flex;align-items:center;gap:4px;background:#22263a;border-radius:8px;padding:5px 10px;border:1px solid #2e3250;">
+      <span style="color:#e8eaf0;font-size:13px;font-weight:600;">${c}</span>
+      <button onclick="deleteCategory('${c}')" style="background:none;border:none;color:#e05252;font-size:14px;line-height:1;padding:0 2px;">✕</button>
+    </div>`).join('');
+
+  const catOptions=STATE.categories.map(c=>`<option value="${c}" ${ms.form.category===c?'selected':''}>${c}</option>`).join('');
+
+  const menuItems=STATE.categories.map(cat=>{
+    const items=STATE.menu.filter(m=>m.category===cat&&m.active!==false);
+    if(!items.length)return'';
+    const cards=items.map(item=>`
+      <div class="card" style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="color:#e8eaf0;font-weight:700;">${item.name}</div><div style="color:#f5a623;font-weight:800;font-size:15px;">${fmt(item.price)}</div></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-ghost" onclick="editMenuItem(${item.id})" style="padding:6px 10px;font-size:12px;">編集</button>
+          <button class="btn-danger" onclick="deleteMenuItem(${item.id})" style="padding:6px 10px;font-size:12px;">削除</button>
+        </div>
+      </div>`).join('');
+    return `<div style="margin-bottom:20px;"><div style="color:#9ca3af;font-size:13px;font-weight:700;margin-bottom:8px;">${cat}</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">${cards}</div></div>`;
+  }).join('');
+
+  return `<div><h2>メニュー管理</h2>
+    ${ms.error?`<div style="color:#e05252;font-size:13px;margin-bottom:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ ${ms.error}</div>`:''}
+    <div class="card" style="margin-bottom:20px;">
+      <div style="color:#5b8ef5;font-weight:700;font-size:14px;margin-bottom:14px;">🏷 カテゴリー管理</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${catTags}</div>
+      <div style="display:flex;gap:8px;">
+        <input id="new-cat-input" value="${ms.newCat}" oninput="window._menuState.newCat=this.value" placeholder="新しいカテゴリー名" style="flex:1;">
+        <button class="btn-ghost" onclick="addCategory()" style="padding:8px 16px;" ${!ms.newCat.trim()?'disabled':''}>追加</button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">カテゴリー</div>
+          <select onchange="window._menuState.form.category=this.value" style="width:auto;">${catOptions}</select>
+        </div>
+        <div style="flex:1;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メニュー名</div><input value="${ms.form.name}" oninput="window._menuState.form.name=this.value" placeholder="例: 餃子"></div>
+        <div style="width:120px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">価格（円）</div><input type="number" value="${ms.form.price}" oninput="window._menuState.form.price=this.value" placeholder="500"></div>
+        <button class="btn-primary" onclick="saveMenuItem()" style="padding:8px 16px;">${ms.editId?'更新':'追加'}</button>
+        ${ms.editId?`<button class="btn-ghost" onclick="window._menuState.editId=null;window._menuState.form={name:'',price:'',category:STATE.categories[0]||''};render()" style="padding:8px 16px;">取消</button>`:''}
+      </div>
+    </div>
+    ${menuItems}</div>`;
+}
+
+async function addCategory(){
+  const ms=window._menuState;const name=ms.newCat.trim();if(!name)return;
+  let _catErr=null; try{await sdb.insert('categories',{name,sort_order:999});}catch(e){_catErr=e;}; const error=_catErr;
+  if(error){ms.error=error.message;render();return;}
+  ms.newCat='';ms.error='';
+  const r=await sdb.get('categories',[],'sort_order');
+  if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
+  render();
+}
+async function deleteCategory(name){
+  const used=STATE.menu.filter(m=>m.category===name).length;
+  if(used>0){window._menuState.error=`「${name}」のメニューが${used}件あります`;render();return;}
+  await sdb.delete('categories',[['name','eq',name]]);
+  const r=await sdb.get('categories',[],'sort_order');
+  if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
+  render();
+}
+async function saveMenuItem(){
+  const ms=window._menuState;
+  if(!ms.form.name||!ms.form.price)return;
+  if(ms.editId){await sdb.update('menu',[['id','eq',ms.editId]],{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});ms.editId=null;}
+  else{await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});}
+  ms.form={name:'',price:'',category:STATE.categories[0]||''};ms.error='';
+  const r=await sdb.get('menu',[['active','eq','true']],'sort_order');
+  if(Array.isArray(r))STATE.menu=r;
+  render();
+}
+function editMenuItem(id){
+  const item=STATE.menu.find(m=>m.id===id);
+  window._menuState.editId=id;window._menuState.form={name:item.name,price:String(item.price),category:item.category};render();
+}
+async function deleteMenuItem(id){
+  await sdb.update('menu',[['id','eq',id]],{active:false});
+  const r=await sdb.get('menu',[['active','eq','true']],'sort_order');
+  if(Array.isArray(r))STATE.menu=r;render();
+}
+
+// ═══════════════════════════════════════════
+// ビュー: テーブル設定
+// ═══════════════════════════════════════════
+function viewTableSettings(){
+  if(!window._tsState) window._tsState={editId:null,form:{name:'',seats:2},newName:'',newSeats:2};
+  const ts=window._tsState;
+  const rows=STATE.tables.map(t=>`
+    <div class="card" style="padding:14px 20px;margin-bottom:8px;">
+      ${ts.editId===t.id?`
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input value="${ts.form.name}" oninput="window._tsState.form.name=this.value" style="flex:2;">
+          <input type="number" min="1" max="20" value="${ts.form.seats}" oninput="window._tsState.form.seats=this.value" style="width:80px;">
+          <button class="btn-success" onclick="saveTableEdit('${t.id}')" style="padding:8px 14px;">保存</button>
+          <button class="btn-ghost" onclick="window._tsState.editId=null;render()" style="padding:8px 14px;">取消</button>
+        </div>`:`
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="color:#e8eaf0;font-weight:700;font-size:16px;">${t.name}</span>
+            ${badge(t.seats+'席','#6b7280')}
+            ${badge(t.status,SC[t.status]||'#6b7280')}
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-ghost" onclick="startTableEdit('${t.id}')" style="padding:6px 12px;font-size:12px;">編集</button>
+            <button class="btn-danger" onclick="deleteTable('${t.id}')" style="padding:6px 12px;font-size:12px;" ${t.status!=='空席'?'disabled':''}>削除</button>
+          </div>
+        </div>`}
+    </div>`).join('');
+  return `<div style="max-width:680px;"><h2>テーブル設定</h2>
+    <div class="card" style="margin-bottom:20px;">
+      <div style="color:#f5a623;font-weight:700;font-size:14px;margin-bottom:14px;">＋ テーブルを追加</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;">
+        <div style="flex:2;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">テーブル名</div><input value="${ts.newName}" oninput="window._tsState.newName=this.value" placeholder="例: カウンター1"></div>
+        <div style="width:100px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">座席数</div><input type="number" min="1" max="20" value="${ts.newSeats}" oninput="window._tsState.newSeats=this.value"></div>
+        <button class="btn-primary" onclick="addTable()" style="padding:8px 16px;" ${!ts.newName.trim()?'disabled':''}>追加</button>
+      </div>
+    </div>
+    ${rows}</div>`;
+}
+function startTableEdit(id){const t=STATE.tables.find(t=>t.id===id);window._tsState.editId=id;window._tsState.form={name:t.name,seats:t.seats};render();}
+async function saveTableEdit(id){const ts=window._tsState;await sdb.update('tables',[['id','eq',id]],{name:ts.form.name,seats:Number(ts.form.seats)});ts.editId=null;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+async function deleteTable(id){await sdb.delete('tables',[['id','eq',id]]);const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+async function addTable(){const ts=window._tsState;if(!ts.newName.trim())return;await sdb.insert('tables',{id:'t'+Date.now(),name:ts.newName.trim(),seats:Number(ts.newSeats)||2,status:'空席',order_json:'[]'});ts.newName='';ts.newSeats=2;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+
+// ═══════════════════════════════════════════
+// ビュー: 設定
+// ═══════════════════════════════════════════
+function viewSettings(){
+  const s=STATE.shop;
+  return `<div style="max-width:560px;"><h2>店舗・設定</h2>
+    <div class="card" style="margin-bottom:16px;">
+      ${[{k:'name',l:'店舗名',p:'○○食堂'},{k:'address',l:'住所',p:'東京都渋谷区…'},{k:'tel',l:'電話番号',p:'03-0000-0000'},{k:'registrationNo',l:'インボイス登録番号',p:'T1234567890123'},{k:'message',l:'レシート末尾メッセージ',p:'またのご来店をお待ちしております'}].map(f=>`
+        <div style="margin-bottom:14px;">
+          <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">${f.l}</div>
+          <input id="shop-${f.k}" value="${s[f.k]||''}" placeholder="${f.p}">
+        </div>`).join('')}
+    </div>
+    <button class="btn-primary" onclick="saveShop()" style="width:100%;padding:12px 0;font-size:16px;">設定を保存</button>
+    <div style="margin-top:16px;text-align:center;">
+      <button onclick="doDisconnect()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;text-decoration:underline;">Supabase接続を解除する</button>
+    </div>
+  </div>`;
+}
+async function saveShop(){
+  const fields=['name','address','tel','registrationNo','message'];
+  const data={};fields.forEach(k=>{data[k]=document.getElementById('shop-'+k)?.value||'';});
+  await sdb.upsert('settings',{key:'shop',value:JSON.stringify(data)});
+  STATE.shop=data;showToast('設定を保存しました');render();
+}
+function doDisconnect(){
+  localStorage.removeItem('supa_url');localStorage.removeItem('supa_key');
+  if(rtWs)try{rtWs.close();}catch(e){}; rtWs=null; SURL=''; SKEY='';
+  STATE.view='connect';window._cashState=null;window._menuState=null;window._tsState=null;
+  render();
+}
+
+// ═══════════════════════════════════════════
+// メインrender
+// ═══════════════════════════════════════════
+function render(){
+  const v=STATE.view;
+  const tables=STATE.tables;
+  const pendingOrders=tables.reduce((n,t)=>n+JSON.parse(t.order_json||'[]').filter(o=>!o.served).length,0);
+  const activeInUse=tables.filter(t=>t.status==='使用中').length;
+  const waitingChk=tables.filter(t=>t.status==='会計待ち').length;
+
+  const NAV=[
+    {k:'tables',l:'🪑 テーブル'},
+    {k:'orderList',l:'📝 注文一覧',dot:pendingOrders},
+    {k:'menu',l:'📋 メニュー'},
+    {k:'cash',l:'💴 レジ金'},
+    {k:'sales',l:'📊 売上'},
+    {k:'tableSettings',l:'🔧 席設定'},
+    {k:'settings',l:'⚙️ 設定'},
+  ];
+
+  let mainHTML='';
+  if(v==='connect'){
+    document.getElementById('app').innerHTML=viewConnect();
+    return;
+  }
+
+  if(STATE.loading){
+    document.getElementById('app').innerHTML=`<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;"><div class="spinner"></div><div style="color:#9ca3af;font-size:14px;">データ読み込み中…</div></div>`;
+    return;
+  }
+
+  const navBtns=NAV.map(n=>`
+    <button class="nav-btn ${v===n.k?'active':''}" onclick="setView('${n.k}')">
+      ${n.l}
+      ${n.dot?`<span class="badge-dot">${n.dot}</span>`:''}
+    </button>`).join('');
+
+  const header=`<nav>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-weight:900;font-size:17px;color:#f5a623;flex-shrink:0;">⬡ ${STATE.shop.name||'POS'}</span>
+      <div style="display:flex;gap:2px;flex-wrap:wrap;">${navBtns}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+      ${badge('使用中 '+activeInUse,'#5b8ef5')}
+      ${waitingChk>0?badge('会計待ち '+waitingChk,'#f5a623'):''}
+    </div>
+  </nav>`;
+
+  switch(v){
+    case 'tables':      mainHTML=viewTables();break;
+    case 'order':       mainHTML=viewOrder();break;
+    case 'checkout':    mainHTML=viewCheckout();break;
+    case 'orderList':   mainHTML=viewOrderList();break;
+    case 'menu':        mainHTML=viewMenu();break;
+    case 'cash':        mainHTML=viewCash();break;
+    case 'sales':       mainHTML=viewSales();break;
+    case 'tableSettings':mainHTML=viewTableSettings();break;
+    case 'settings':    mainHTML=viewSettings();break;
+    default:            mainHTML='';
+  }
+
+  document.getElementById('app').innerHTML=header+`<main>${mainHTML}</main><div id="toast-area"></div>`;
+}
+
+function setView(v){
+  if(!['order','checkout'].includes(v))STATE.selId=null;
+  STATE.view=v;render();
+}
+
+// ═══════════════════════════════════════════
+// 起動
+// ═══════════════════════════════════════════
+window.addEventListener('load',async()=>{
+  const url=localStorage.getItem('supa_url');
+  const key=localStorage.getItem('supa_key');
+  if(url&&key){
+    try{
+      SURL=url; SKEY=key;
+      const res=await fetch(`${url}/rest/v1/settings?select=key&limit=1`,{headers:{'apikey':key,'Authorization':'Bearer '+key,'Accept':'application/json'}});
+      if(!res.ok) throw new Error('auth failed');
+      STATE.loading=true; STATE.view='tables'; render();
+      await loadAll();
+      startRealtime();
+      STATE.loading=false; render();
+    }catch{SURL='';SKEY='';STATE.view='connect';render();}
+  }else{STATE.view='connect';render();}
+});
+</script>
+</body>
+</html>
