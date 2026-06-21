@@ -572,7 +572,7 @@ function viewSales(){
   const tab = STATE.salesTab||'daily';
   const sales = STATE.sales;
   const dailyMap={},monthlyMap={},hourlyMap={},itemMap={};
-  sales.forEach(s=>{
+  for(const s of sales){
     const dk=(s.created_at||'').slice(0,10);
     const mk=dk.slice(0,7),h=new Date(s.created_at||Date.now()).getHours();
     if(!dailyMap[dk])dailyMap[dk]={total:0,count:0,cash:0,card:0,qr:0};
@@ -584,11 +584,12 @@ function viewSales(){
     if(s.method==='QRコード')dailyMap[dk].qr+=s.total;
     monthlyMap[mk].total+=s.total;monthlyMap[mk].count++;
     hourlyMap[h].total+=s.total;hourlyMap[h].count++;
-    JSON.parse(s.items_json||'[]').forEach(i=>{
+    const sitems=JSON.parse(s.items_json||'[]');
+    for(const i of sitems){
       if(!itemMap[i.name])itemMap[i.name]={total:0,qty:0};
       itemMap[i.name].total+=i.price*i.qty;itemMap[i.name].qty+=i.qty;
-    });
-  });
+    }
+  }
   const today=todayStr();
   const todayTotal=dailyMap[today]?.total||0;
   const monthTotal=monthlyMap[today.slice(0,7)]?.total||0;
@@ -839,9 +840,12 @@ async function doOpenRegister(){
 }
 async function doCloseRegister(){
   if(!window._doCloseConfirmed){
-    confirmAction('閉店処理を確定しますか？<br><span style="font-size:13px;color:#9ca3af;">確定後は変更できません</span>', '閉店を確定する', async()=>{
-      window._doCloseConfirmed=true; await doCloseRegister(); window._doCloseConfirmed=false;
-    }); return;
+    confirmAction('閉店処理を確定しますか？確定後は変更できません。', '閉店を確定する', async()=>{
+      window._doCloseConfirmed=true;
+      await doCloseRegister();
+      window._doCloseConfirmed=false;
+    });
+    return;
   }
   // confirmed:
   const cs=window._cashState;
@@ -991,8 +995,8 @@ function viewTableSettings(){
     ${rows}</div>`;
 }
 function startTableEdit(id){const t=STATE.tables.find(t=>t.id===id);window._tsState.editId=id;window._tsState.form={name:t.name,seats:t.seats};render();}
-async function saveTableEdit(id){const ts=window._tsState;await sdb.update('tables',[['id','eq',id]],{name:ts.form.name,seats:Number(ts.form.seats)});ts.editId=null;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();});}
-async function deleteTable(id){confirm2('このテーブルを削除しますか？', async()=>{await sdb.delete('tables',[['id','eq',id]]);const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+async function saveTableEdit(id){const ts=window._tsState;await sdb.update('tables',[['id','eq',id]],{name:ts.form.name,seats:Number(ts.form.seats)});ts.editId=null;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+async function deleteTable(id){confirm2('このテーブルを削除しますか？', async()=>{await sdb.delete('tables',[['id','eq',id]]);const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();});}
 async function addTable(){const ts=window._tsState;if(!ts.newName.trim())return;await sdb.insert('tables',{id:'t'+Date.now(),name:ts.newName.trim(),seats:Number(ts.newSeats)||2,status:'空席',order_json:'[]'});ts.newName='';ts.newSeats=2;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
 
 // ═══════════════════════════════════════════
