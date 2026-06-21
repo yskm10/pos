@@ -107,6 +107,42 @@ function showToast(msg, type='ok'){
 }
 
 // ═══════════════════════════════════════════
+// 確認ダイアログ
+// ═══════════════════════════════════════════
+function confirm2(msg, onOk){
+  const overlay = document.createElement('div');
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.innerHTML=`
+    <div style="background:#1a1d27;border:1px solid #2e3250;border-radius:16px;padding:28px 32px;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+      <div style="font-size:20px;margin-bottom:12px;">⚠️</div>
+      <div style="color:#e8eaf0;font-size:15px;line-height:1.6;margin-bottom:24px;">${msg}</div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="flex:1;padding:12px 0;background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#9ca3af;font-weight:700;font-size:14px;cursor:pointer;">キャンセル</button>
+        <button id="confirm-ok-btn" style="flex:1;padding:12px 0;background:#e05252;border:none;border-radius:8px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;">削除する</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#confirm-ok-btn').onclick = ()=>{ overlay.remove(); onOk(); };
+  overlay.onclick = e=>{ if(e.target===overlay) overlay.remove(); };
+}
+
+function confirmAction(msg, label, onOk){
+  const overlay = document.createElement('div');
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.innerHTML=`
+    <div style="background:#1a1d27;border:1px solid #2e3250;border-radius:16px;padding:28px 32px;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+      <div style="color:#e8eaf0;font-size:15px;line-height:1.6;margin-bottom:24px;">${msg}</div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="this.closest('div[style*=fixed]').remove()" style="flex:1;padding:12px 0;background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#9ca3af;font-weight:700;font-size:14px;cursor:pointer;">キャンセル</button>
+        <button id="confirm-ok-btn" style="flex:1;padding:12px 0;background:#f5a623;border:none;border-radius:8px;color:#0f1117;font-weight:700;font-size:14px;cursor:pointer;">${label}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#confirm-ok-btn').onclick = ()=>{ overlay.remove(); onOk(); };
+  overlay.onclick = e=>{ if(e.target===overlay) overlay.remove(); };
+}
+
+// ═══════════════════════════════════════════
 // Supabase REST API（fetchベース・ライブラリ不使用）
 // ═══════════════════════════════════════════
 let SURL = ''; // https://xxx.supabase.co
@@ -134,7 +170,14 @@ function sfetch(table, opts={}){
   if(method==='POST') headers['Prefer'] = upsert ? 'resolution=merge-duplicates,return=representation' : 'return=representation';
   if(method==='PATCH') headers['Prefer'] = 'return=representation';
   return fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined })
-    .then(async r=>{ const d=await r.json(); if(!r.ok) throw new Error(d.message||JSON.stringify(d)); return d; });
+    .then(async r=>{
+    if(r.status===204||r.headers.get('content-length')==='0') return [];
+    const text=await r.text();
+    if(!text) return [];
+    let d; try{d=JSON.parse(text);}catch(e){if(!r.ok)throw new Error(text);return [];}
+    if(!r.ok) throw new Error((d&&d.message)||JSON.stringify(d));
+    return d;
+  });
 }
 
 // 便利ラッパー
@@ -795,6 +838,12 @@ async function doOpenRegister(){
   render();
 }
 async function doCloseRegister(){
+  if(!window._doCloseConfirmed){
+    confirmAction('閉店処理を確定しますか？<br><span style="font-size:13px;color:#9ca3af;">確定後は変更できません</span>', '閉店を確定する', async()=>{
+      window._doCloseConfirmed=true; await doCloseRegister(); window._doCloseConfirmed=false;
+    }); return;
+  }
+  // confirmed:
   const cs=window._cashState;
   const today=todayStr();
   const todayLog=STATE.cashLogs.find(l=>l.date===today);
@@ -864,8 +913,7 @@ function viewMenu(){
 
 async function addCategory(){
   const ms=window._menuState;const name=ms.newCat.trim();if(!name)return;
-  let _catErr=null; try{await sdb.insert('categories',{name,sort_order:999});}catch(e){_catErr=e;}; const error=_catErr;
-  if(error){ms.error=error.message;render();return;}
+  try{await sdb.insert('categories',{name,sort_order:999});}catch(e){ms.error=e.message;render();return;}
   ms.newCat='';ms.error='';
   const r=await sdb.get('categories',[],'sort_order');
   if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
@@ -873,11 +921,13 @@ async function addCategory(){
 }
 async function deleteCategory(name){
   const used=STATE.menu.filter(m=>m.category===name).length;
-  if(used>0){window._menuState.error=`「${name}」のメニューが${used}件あります`;render();return;}
-  await sdb.delete('categories',[['name','eq',name]]);
-  const r=await sdb.get('categories',[],'sort_order');
-  if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
-  render();
+  if(used>0){window._menuState.error=`「${name}」のメニューが${used}件あるため削除できません`;render();return;}
+  confirm2(`カテゴリー「${name}」を削除しますか？`, async()=>{
+    await sdb.delete('categories',[['name','eq',name]]);
+    const r=await sdb.get('categories',[],'sort_order');
+    if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
+    render();
+  });
 }
 async function saveMenuItem(){
   const ms=window._menuState;
@@ -894,9 +944,12 @@ function editMenuItem(id){
   window._menuState.editId=id;window._menuState.form={name:item.name,price:String(item.price),category:item.category};render();
 }
 async function deleteMenuItem(id){
-  await sdb.update('menu',[['id','eq',id]],{active:false});
-  const r=await sdb.get('menu',[['active','eq','true']],'sort_order');
-  if(Array.isArray(r))STATE.menu=r;render();
+  const item=STATE.menu.find(m=>m.id===id);
+  confirm2(`「${item?item.name:'このメニュー'}」を削除しますか？`, async()=>{
+    await sdb.update('menu',[['id','eq',id]],{active:false});
+    const r=await sdb.get('menu',[['active','eq','true']],'sort_order');
+    if(Array.isArray(r))STATE.menu=r;render();
+  });
 }
 
 // ═══════════════════════════════════════════
@@ -938,8 +991,8 @@ function viewTableSettings(){
     ${rows}</div>`;
 }
 function startTableEdit(id){const t=STATE.tables.find(t=>t.id===id);window._tsState.editId=id;window._tsState.form={name:t.name,seats:t.seats};render();}
-async function saveTableEdit(id){const ts=window._tsState;await sdb.update('tables',[['id','eq',id]],{name:ts.form.name,seats:Number(ts.form.seats)});ts.editId=null;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
-async function deleteTable(id){await sdb.delete('tables',[['id','eq',id]]);const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+async function saveTableEdit(id){const ts=window._tsState;await sdb.update('tables',[['id','eq',id]],{name:ts.form.name,seats:Number(ts.form.seats)});ts.editId=null;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();});}
+async function deleteTable(id){confirm2('このテーブルを削除しますか？', async()=>{await sdb.delete('tables',[['id','eq',id]]);const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
 async function addTable(){const ts=window._tsState;if(!ts.newName.trim())return;await sdb.insert('tables',{id:'t'+Date.now(),name:ts.newName.trim(),seats:Number(ts.newSeats)||2,status:'空席',order_json:'[]'});ts.newName='';ts.newSeats=2;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
 
 // ═══════════════════════════════════════════
@@ -964,14 +1017,18 @@ function viewSettings(){
 async function saveShop(){
   const fields=['name','address','tel','registrationNo','message'];
   const data={};fields.forEach(k=>{data[k]=document.getElementById('shop-'+k)?.value||'';});
-  await sdb.upsert('settings',{key:'shop',value:JSON.stringify(data)});
-  STATE.shop=data;showToast('設定を保存しました');render();
+  confirmAction('店舗設定を保存しますか？', '保存する', async()=>{
+    await sdb.upsert('settings',{key:'shop',value:JSON.stringify(data)});
+    STATE.shop=data;showToast('設定を保存しました');render();
+  });
 }
 function doDisconnect(){
-  localStorage.removeItem('supa_url');localStorage.removeItem('supa_key');
-  if(rtWs)try{rtWs.close();}catch(e){}; rtWs=null; SURL=''; SKEY='';
-  STATE.view='connect';window._cashState=null;window._menuState=null;window._tsState=null;
-  render();
+  confirm2('Supabase接続を解除しますか？<br><span style="font-size:13px;color:#9ca3af;">接続解除してもデータは消えません</span>', ()=>{
+    localStorage.removeItem('supa_url');localStorage.removeItem('supa_key');
+    if(rtWs)try{rtWs.close();}catch(e){}; rtWs=null; SURL=''; SKEY='';
+    STATE.view='connect';window._cashState=null;window._menuState=null;window._tsState=null;
+    render();
+  });
 }
 
 // ═══════════════════════════════════════════
