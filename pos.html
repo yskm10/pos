@@ -306,6 +306,9 @@ function viewTables(){
   const cards = STATE.tables.map(t=>{
     const order = JSON.parse(t.order_json||'[]');
     const color = SC[t.status]||'#6b7280';
+    const resetBtn = t.status!=='空席'
+      ? `<button onclick="event.stopPropagation();resetTable('${t.id}')" style="margin-top:8px;width:100%;padding:5px 0;background:rgba(107,114,128,.2);border:1px solid #2e3250;border-radius:6px;color:#9ca3af;font-size:11px;font-weight:700;">🔓 空席に戻す</button>`
+      : '';
     return `<div class="card" onclick="selectTable('${t.id}')" style="border:2px solid ${color}55;cursor:pointer;padding:16px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
         <span style="color:#e8eaf0;font-weight:800;font-size:16px;line-height:1.3;">${t.name}</span>
@@ -314,11 +317,19 @@ function viewTables(){
       ${badge(t.status, color)}
       ${t.status!=='空席'?`<div style="color:#9ca3af;font-size:11px;margin-top:6px;">${elapsed(t.opened_at)}</div>`:''}
       ${t.status!=='空席'?`<div style="color:#f5a623;font-size:13px;margin-top:4px;font-weight:700;">${fmt(calcTotal(calcSub(order)))}</div>`:''}
+      ${resetBtn}
     </div>`;
   }).join('');
   return `<div><h2>テーブル一覧</h2><div class="grid-tables">${cards}</div></div>`;
 }
 
+
+async function resetTable(id){
+  confirm2('このテーブルを空席に戻しますか？<br><span style="font-size:12px;color:#9ca3af;">注文データはクリアされます</span>', async()=>{
+    await syncTable(id,{status:'空席',order_json:'[]',opened_at:null});
+    showToast('空席に戻しました');
+  });
+}
 async function selectTable(id){
   const t = STATE.tables.find(t=>t.id===id);
   if(t.status==='空席') await syncTable(id,{status:'使用中',opened_at:new Date().toISOString()});
@@ -898,16 +909,16 @@ function viewMenu(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${catTags}</div>
       <div style="display:flex;gap:8px;">
         <input id="new-cat-input" value="${ms.newCat}" oninput="window._menuState.newCat=this.value" placeholder="新しいカテゴリー名" style="flex:1;">
-        <button class="btn-ghost" onclick="addCategory()" style="padding:8px 16px;" ${!ms.newCat.trim()?'disabled':''}>追加</button>
+        <button class="btn-ghost" onclick="addCategory()" style="padding:8px 16px;">追加</button>
       </div>
     </div>
     <div class="card" style="margin-bottom:20px;">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
         <div><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">カテゴリー</div>
-          <select onchange="window._menuState.form.category=this.value" style="width:auto;">${catOptions}</select>
+          <select id="menu-cat-sel" onchange="window._menuState.form.category=this.value" style="width:auto;">${catOptions}</select>
         </div>
-        <div style="flex:1;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メニュー名</div><input value="${ms.form.name}" oninput="window._menuState.form.name=this.value" placeholder="例: 餃子"></div>
-        <div style="width:120px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">価格（円）</div><input type="number" value="${ms.form.price}" oninput="window._menuState.form.price=this.value" placeholder="500"></div>
+        <div style="flex:1;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メニュー名</div><input id="menu-name-inp" value="${ms.form.name}" oninput="window._menuState.form.name=this.value" placeholder="例: 餃子"></div>
+        <div style="width:120px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">価格（円）</div><input id="menu-price-inp" type="number" value="${ms.form.price}" oninput="window._menuState.form.price=this.value" placeholder="500"></div>
         <button class="btn-primary" onclick="saveMenuItem()" style="padding:8px 16px;">${ms.editId?'更新':'追加'}</button>
         ${ms.editId?`<button class="btn-ghost" onclick="window._menuState.editId=null;window._menuState.form={name:'',price:'',category:STATE.categories[0]||''};render()" style="padding:8px 16px;">取消</button>`:''}
       </div>
@@ -916,12 +927,19 @@ function viewMenu(){
 }
 
 async function addCategory(){
-  const ms=window._menuState;const name=ms.newCat.trim();if(!name)return;
-  try{await sdb.insert('categories',{name,sort_order:999});}catch(e){ms.error=e.message;render();return;}
-  ms.newCat='';ms.error='';
-  const r=await sdb.get('categories',[],'sort_order');
-  if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
-  render();
+  const ms=window._menuState;
+  const el=document.getElementById('new-cat-input');
+  const name=((el?el.value:'')||(ms.newCat||'')).trim();
+  if(!name){showToast('カテゴリー名を入力してください','error');return;}
+  try{
+    await sdb.insert('categories',{name,sort_order:999});
+    ms.newCat='';ms.error='';
+    if(el)el.value='';
+    const r=await sdb.get('categories',[],'sort_order');
+    if(Array.isArray(r))STATE.categories=r.map(c=>c.name);
+    showToast(name+' を追加しました');
+    render();
+  }catch(e){ms.error=e.message;render();}
 }
 async function deleteCategory(name){
   const used=STATE.menu.filter(m=>m.category===name).length;
@@ -935,7 +953,13 @@ async function deleteCategory(name){
 }
 async function saveMenuItem(){
   const ms=window._menuState;
-  if(!ms.form.name||!ms.form.price)return;
+  const nameEl=document.getElementById('menu-name-inp');
+  const priceEl=document.getElementById('menu-price-inp');
+  const catEl=document.getElementById('menu-cat-sel');
+  if(nameEl) ms.form.name=nameEl.value.trim();
+  if(priceEl) ms.form.price=priceEl.value;
+  if(catEl) ms.form.category=catEl.value;
+  if(!ms.form.name||!ms.form.price){showToast('名前と価格を入力してください','error');return;}
   if(ms.editId){await sdb.update('menu',[['id','eq',ms.editId]],{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});ms.editId=null;}
   else{await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});}
   ms.form={name:'',price:'',category:STATE.categories[0]||''};ms.error='';
@@ -987,9 +1011,9 @@ function viewTableSettings(){
     <div class="card" style="margin-bottom:20px;">
       <div style="color:#f5a623;font-weight:700;font-size:14px;margin-bottom:14px;">＋ テーブルを追加</div>
       <div style="display:flex;gap:10px;align-items:flex-end;">
-        <div style="flex:2;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">テーブル名</div><input value="${ts.newName}" oninput="window._tsState.newName=this.value" placeholder="例: カウンター1"></div>
-        <div style="width:100px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">座席数</div><input type="number" min="1" max="20" value="${ts.newSeats}" oninput="window._tsState.newSeats=this.value"></div>
-        <button class="btn-primary" onclick="addTable()" style="padding:8px 16px;" ${!ts.newName.trim()?'disabled':''}>追加</button>
+        <div style="flex:2;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">テーブル名</div><input id="new-table-name" value="${ts.newName}" oninput="window._tsState.newName=this.value" placeholder="例: カウンター1"></div>
+        <div style="width:100px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">座席数</div><input type="number" min="1" max="20" id="new-table-seats" value="${ts.newSeats}" oninput="window._tsState.newSeats=this.value"></div>
+        <button class="btn-primary" onclick="addTable()" style="padding:8px 16px;">追加</button>
       </div>
     </div>
     ${rows}</div>`;
@@ -997,7 +1021,22 @@ function viewTableSettings(){
 function startTableEdit(id){const t=STATE.tables.find(t=>t.id===id);window._tsState.editId=id;window._tsState.form={name:t.name,seats:t.seats};render();}
 async function saveTableEdit(id){const ts=window._tsState;await sdb.update('tables',[['id','eq',id]],{name:ts.form.name,seats:Number(ts.form.seats)});ts.editId=null;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
 async function deleteTable(id){confirm2('このテーブルを削除しますか？', async()=>{await sdb.delete('tables',[['id','eq',id]]);const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();});}
-async function addTable(){const ts=window._tsState;if(!ts.newName.trim())return;await sdb.insert('tables',{id:'t'+Date.now(),name:ts.newName.trim(),seats:Number(ts.newSeats)||2,status:'空席',order_json:'[]'});ts.newName='';ts.newSeats=2;const r=await sdb.get('tables',[],'id');if(Array.isArray(r))STATE.tables=r;render();}
+async function addTable(){
+  const ts=window._tsState;
+  const nameEl=document.getElementById('new-table-name');
+  const seatsEl=document.getElementById('new-table-seats');
+  const name=(nameEl?nameEl.value:'').trim()||(ts.newName||'').trim();
+  const seats=Number(seatsEl?seatsEl.value:ts.newSeats)||2;
+  if(!name){showToast('テーブル名を入力してください','error');return;}
+  try{
+    await sdb.insert('tables',{id:'t'+Date.now(),name,seats,status:'空席',order_json:'[]'});
+    ts.newName='';ts.newSeats=2;
+    const r=await sdb.get('tables',[],'id');
+    if(Array.isArray(r))STATE.tables=r;
+    showToast(name+' を追加しました');
+    render();
+  }catch(e){showToast('追加失敗: '+e.message,'error');}
+}
 
 // ═══════════════════════════════════════════
 // ビュー: 設定
