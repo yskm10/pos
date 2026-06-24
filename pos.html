@@ -192,14 +192,14 @@ const sdb = {
 async function loadAll(){
   const [tr,mn,ca,sa,cl,sh] = await Promise.all([
     sdb.get('tables',[],'id'),
-    sdb.get('menu',[['active','eq','true']],'sort_order'),
+    sdb.get('menu',[],'sort_order'),
     sdb.get('categories',[],'sort_order'),
     sdb.get('sales',[],'created_at.desc',500),
     sdb.get('cash_logs',[],'date.desc'),
     sdb.get('settings',[['key','eq','shop']]),
   ]);
   STATE.tables     = Array.isArray(tr)?tr:[];
-  STATE.menu       = Array.isArray(mn)?mn:[];
+  STATE.menu       = Array.isArray(mn)?mn.filter(m=>m.active!==false&&m.active!=='false'):[];
   STATE.categories = Array.isArray(ca)?ca.map(r=>r.name):[];
   STATE.sales      = Array.isArray(sa)?sa:[];
   STATE.cashLogs   = Array.isArray(cl)?cl:[];
@@ -355,7 +355,7 @@ function viewOrder(){
 
   const catBtns = cats.map(c=>`<button class="cat-btn ${cat===c?'active':''}" onclick="setOrderCat('${c}')">${c}</button>`).join('');
   const menuItems = filtered.map(item=>`
-    <div class="menu-item" onclick="addItem(${JSON.stringify(JSON.stringify(item))})">
+    <div class="menu-item" onclick="addItem(${item.id})" data-id="${item.id}">
       <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">${item.category}</div>
       <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:6px;">${item.name}</div>
       <div style="color:#f5a623;font-weight:800;">${fmt(item.price)}</div>
@@ -413,12 +413,16 @@ function viewOrder(){
 
 function setOrderCat(c){STATE.orderCat=c;render();}
 
-async function addItem(jsonStr){
-  const item = JSON.parse(jsonStr);
+async function addItem(itemId){
+  const item = STATE.menu.find(m=>m.id==itemId);
+  if(!item){showToast('メニューが見つかりません','error');return;}
   const t = STATE.tables.find(t=>t.id===STATE.selId);
+  if(!t){showToast('テーブルが見つかりません','error');return;}
   const order = JSON.parse(t.order_json||'[]');
   const ex = order.find(o=>o.id===item.id&&!o.served);
-  const newOrder = ex ? order.map(o=>o.id===item.id&&!o.served?{...o,qty:o.qty+1}:o) : [...order,{...item,qty:1,served:false}];
+  const newOrder = ex
+    ? order.map(o=>o.id===item.id&&!o.served?{...o,qty:o.qty+1}:o)
+    : [...order,{id:item.id,name:item.name,price:item.price,category:item.category,qty:1,served:false}];
   await syncTable(STATE.selId,{order_json:JSON.stringify(newOrder)});
 }
 async function removeItem(itemId){
@@ -889,7 +893,7 @@ function viewMenu(){
   const catOptions=STATE.categories.map(c=>`<option value="${c}" ${ms.form.category===c?'selected':''}>${c}</option>`).join('');
 
   const menuItems=STATE.categories.map(cat=>{
-    const items=STATE.menu.filter(m=>m.category===cat&&m.active!==false);
+    const items=STATE.menu.filter(m=>m.category===cat);
     if(!items.length)return'';
     const cards=items.map(item=>`
       <div class="card" style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
@@ -963,8 +967,8 @@ async function saveMenuItem(){
   if(ms.editId){await sdb.update('menu',[['id','eq',ms.editId]],{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});ms.editId=null;}
   else{await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});}
   ms.form={name:'',price:'',category:STATE.categories[0]||''};ms.error='';
-  const r=await sdb.get('menu',[['active','eq','true']],'sort_order');
-  if(Array.isArray(r))STATE.menu=r;
+  const r=await sdb.get('menu',[],'sort_order');
+  if(Array.isArray(r))STATE.menu=r.filter(m=>m.active!==false&&m.active!=='false');
   render();
 }
 function editMenuItem(id){
@@ -975,8 +979,8 @@ async function deleteMenuItem(id){
   const item=STATE.menu.find(m=>m.id===id);
   confirm2(`「${item?item.name:'このメニュー'}」を削除しますか？`, async()=>{
     await sdb.update('menu',[['id','eq',id]],{active:false});
-    const r=await sdb.get('menu',[['active','eq','true']],'sort_order');
-    if(Array.isArray(r))STATE.menu=r;render();
+    const r=await sdb.get('menu',[],'sort_order');
+    if(Array.isArray(r))STATE.menu=r.filter(m=>m.active!==false&&m.active!=='false');render();
   });
 }
 
