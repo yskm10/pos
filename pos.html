@@ -365,6 +365,7 @@ function viewOrder(){
     <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #2e3250;">
       <div style="flex:1;">
         <div style="color:#e8eaf0;font-size:13px;font-weight:600;">${item.name}</div>
+        ${item.selectedOpts&&item.selectedOpts.length>0?`<div style="color:#f5a623;font-size:11px;">${item.selectedOpts.map(o=>o.chosen.map(c=>c.label).join('/')).join(' · ')}</div>`:''}
         <div style="color:#9ca3af;font-size:11px;">${fmt(item.price)} × ${item.qty}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center;">
@@ -416,13 +417,129 @@ function setOrderCat(c){STATE.orderCat=c;render();}
 async function addItem(itemId){
   const item = STATE.menu.find(m=>m.id==itemId);
   if(!item){showToast('メニューが見つかりません','error');return;}
+  const opts = item.options_json ? JSON.parse(item.options_json) : [];
+  if(opts.length>0){
+    showOptionPopup(item, opts);
+  } else {
+    await doAddItem(item, []);
+  }
+}
+
+function showOptionPopup(item, opts){
+  // 選択状態を初期化
+  const sel = {}; // {groupIdx: Set of choiceIdx} for multi, {groupIdx: choiceIdx} for single
+  opts.forEach((o,i)=>{ sel[i] = o.type==='multi' ? new Set() : -1; });
+  window._optSel = sel;
+  window._optItem = item;
+  window._optOpts = opts;
+
+  function buildPopup(){
+    const sel = window._optSel;
+    const groups = opts.map((o,gi)=>{
+      const choices = o.choices.map((c,ci)=>{
+        const isSelected = o.type==='single' ? sel[gi]===ci : sel[gi].has(ci);
+        const priceStr = c.price!==0?(c.price>0?'+':'')+c.price+'円':'';
+        return `<button onclick="toggleOpt(${gi},${ci},'${o.type}')"
+          style="padding:8px 14px;border-radius:8px;border:2px solid ${isSelected?'#f5a623':'#2e3250'};
+          background:${isSelected?'rgba(245,166,35,.15)':'transparent'};
+          color:${isSelected?'#f5a623':'#e8eaf0'};font-size:14px;font-weight:${isSelected?700:400};
+          text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <span>${c.label}</span>
+          ${priceStr?`<span style="font-size:12px;color:${c.price>0?'#f5a623':c.price<0?'#4caf80':'#9ca3af'};">${priceStr}</span>`:''}
+        </button>`;
+      }).join('');
+      return `<div style="margin-bottom:16px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+          <span style="font-weight:700;color:#e8eaf0;">${o.name}</span>
+          <span style="font-size:11px;background:${o.type==='single'?'rgba(91,142,245,.2)':'rgba(155,127,232,.2)'};color:${o.type==='single'?'#5b8ef5':'#9b7fe8'};padding:2px 8px;border-radius:99px;">${o.type==='single'?'1つ選択':'複数選択可'}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">${choices}</div>
+      </div>`;
+    }).join('');
+
+    // 差額合計を計算
+    let extra=0;
+    opts.forEach((o,gi)=>{
+      if(o.type==='single'&&sel[gi]>=0) extra+=o.choices[sel[gi]].price||0;
+      else if(o.type==='multi') sel[gi].forEach(ci=>{ extra+=o.choices[ci].price||0; });
+    });
+    const total = item.price + extra;
+
+    const el = document.getElementById('opt-popup-inner');
+    if(el) el.innerHTML = `
+      <div style="font-weight:800;font-size:17px;color:#e8eaf0;margin-bottom:4px;">${item.name}</div>
+      <div style="color:#9ca3af;font-size:13px;margin-bottom:18px;">ベース価格: ${fmt(item.price)}</div>
+      ${groups}
+      <div style="border-top:1px solid #2e3250;padding-top:14px;margin-top:4px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="color:#9ca3af;font-size:12px;">合計金額</div>
+          <div style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(total)}${extra!==0?`<span style="font-size:13px;color:${extra>0?'#f5a623':'#4caf80'};margin-left:6px;">(${extra>0?'+':''}{${extra}}円)</span>`:''}</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-ghost" onclick="closeOptPopup()" style="padding:10px 20px;">キャンセル</button>
+          <button class="btn-success" onclick="confirmOpt()" style="padding:10px 24px;font-size:15px;">注文に追加</button>
+        </div>
+      </div>`;
+  }
+
+  // オーバーレイ作成
+  const overlay = document.createElement('div');
+  overlay.id='opt-popup-overlay';
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:9997;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.innerHTML=`<div style="background:#1a1d27;border:1px solid #2e3250;border-radius:16px;padding:24px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5);" id="opt-popup-inner"></div>`;
+  document.body.appendChild(overlay);
+  buildPopup();
+  window._rebuildOptPopup = buildPopup;
+}
+
+function toggleOpt(gi,ci,type){
+  const sel=window._optSel;
+  if(type==='single'){
+    sel[gi] = sel[gi]===ci ? -1 : ci;
+  } else {
+    if(sel[gi].has(ci)) sel[gi].delete(ci); else sel[gi].add(ci);
+  }
+  if(window._rebuildOptPopup) window._rebuildOptPopup();
+}
+
+function closeOptPopup(){
+  const el=document.getElementById('opt-popup-overlay');
+  if(el) el.remove();
+  window._optSel=null; window._optItem=null; window._optOpts=null; window._rebuildOptPopup=null;
+}
+
+async function confirmOpt(){
+  const item=window._optItem, opts=window._optOpts, sel=window._optSel;
+  if(!item) return;
+  // 選択されたオプションをまとめる
+  const selectedOpts=[];
+  let extra=0;
+  opts.forEach((o,gi)=>{
+    const chosen=[];
+    if(o.type==='single'&&sel[gi]>=0){
+      const c=o.choices[sel[gi]];
+      chosen.push({label:c.label,price:c.price||0});
+      extra+=c.price||0;
+    } else if(o.type==='multi'){
+      sel[gi].forEach(ci=>{ const c=o.choices[ci]; chosen.push({label:c.label,price:c.price||0}); extra+=c.price||0; });
+    }
+    if(chosen.length>0) selectedOpts.push({name:o.name,chosen});
+  });
+  closeOptPopup();
+  await doAddItem(item, selectedOpts, extra);
+}
+
+async function doAddItem(item, selectedOpts, extraPrice=0){
   const t = STATE.tables.find(t=>t.id===STATE.selId);
   if(!t){showToast('テーブルが見つかりません','error');return;}
   const order = JSON.parse(t.order_json||'[]');
-  const ex = order.find(o=>o.id===item.id&&!o.served);
+  const finalPrice = item.price + (extraPrice||0);
+  // オプションが同じ既存アイテムを探す
+  const optKey = JSON.stringify(selectedOpts);
+  const ex = order.find(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[]===optKey));
   const newOrder = ex
-    ? order.map(o=>o.id===item.id&&!o.served?{...o,qty:o.qty+1}:o)
-    : [...order,{id:item.id,name:item.name,price:item.price,category:item.category,qty:1,served:false}];
+    ? order.map(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[])==optKey?{...o,qty:o.qty+1}:o)
+    : [...order,{id:item.id,name:item.name,price:finalPrice,basePrice:item.price,extraPrice,selectedOpts,category:item.category,qty:1,served:false}];
   await syncTable(STATE.selId,{order_json:JSON.stringify(newOrder)});
 }
 async function removeItem(itemId){
@@ -557,7 +674,7 @@ function viewOrderList(){
     const borderColor=pending.length>0?'rgba(245,166,35,.3)':'rgba(76,175,128,.3)';
     const pendingRows=pending.map(item=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #2e3250;">
-        <div><span style="color:#e8eaf0;font-weight:600;font-size:14px;">${item.name}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">× ${item.qty}</span></div>
+        <div><span style="color:#e8eaf0;font-weight:600;font-size:14px;">${item.name}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">× ${item.qty}</span>${item.selectedOpts&&item.selectedOpts.length>0?`<div style="color:#f5a623;font-size:11px;margin-top:2px;">${item.selectedOpts.map(o=>o.chosen.map(c=>c.label).join('/')).join(' · ')}</div>`:''}</div>
         <button onclick="markServed('${t.id}','${item.id}')" style="background:rgba(76,175,128,.2);border:1px solid rgba(76,175,128,.3);border-radius:7px;color:#4caf80;padding:5px 14px;font-weight:700;font-size:13px;">✓ 提供済み</button>
       </div>`).join('');
     const servedDetails=served.length>0?`<details style="margin-top:8px;"><summary style="color:#9ca3af;font-size:12px;">提供済み ${served.length}品</summary>${served.map(i=>`<div style="font-size:13px;opacity:.55;padding:3px 0;color:#e8eaf0;text-decoration:line-through;">${i.name} × ${i.qty}</div>`).join('')}</details>`:'';
@@ -881,6 +998,140 @@ async function doCloseRegister(){
 // ═══════════════════════════════════════════
 // ビュー: メニュー管理
 // ═══════════════════════════════════════════
+function optionPanel(ms){
+  const opts = ms.form.options||[];
+  const eo   = ms.editingOpt||{name:'',type:'single',choices:[]};
+  const nc   = ms.newChoice||{label:'',price:0};
+  const editingIdx = ms.editingOptIdx;
+
+  const optList = opts.map((o,i)=>`
+    <div style="background:#22263a;border-radius:8px;padding:12px;margin-bottom:8px;border:1px solid #2e3250;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div>
+          <span style="color:#e8eaf0;font-weight:700;">${o.name}</span>
+          <span style="color:#9ca3af;font-size:12px;margin-left:8px;">${o.type==='single'?'単一選択':'複数選択'}</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-ghost" onclick="startEditOpt(${i})" style="padding:4px 10px;font-size:11px;">編集</button>
+          <button class="btn-danger" onclick="removeOpt(${i})" style="padding:4px 10px;font-size:11px;">削除</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${o.choices.map(c=>`<span style="background:#1a1d27;border:1px solid #2e3250;border-radius:6px;padding:3px 10px;font-size:12px;color:${c.price>0?'#f5a623':c.price<0?'#e05252':'#9ca3af'};">${c.label}${c.price!==0?(c.price>0?'+':'')+c.price+'円':''}</span>`).join('')}
+      </div>
+    </div>`).join('');
+
+  const choiceList = (editingIdx>=0?eo.choices:[]).map((c,ci)=>`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+      <span style="color:#e8eaf0;font-size:13px;flex:1;">${c.label}</span>
+      <span style="color:${c.price>0?'#f5a623':c.price<0?'#e05252':'#9ca3af'};font-size:13px;width:70px;">${c.price!==0?(c.price>0?'+':'')+c.price+'円':'差額なし'}</span>
+      <button onclick="removeChoice(${ci})" style="background:rgba(224,82,82,.2);border:none;border-radius:5px;color:#e05252;width:22px;height:22px;cursor:pointer;">✕</button>
+    </div>`).join('');
+
+  return `
+  <div style="background:#0f1117;border:1px solid #f5a623;border-radius:10px;padding:16px;margin-top:12px;">
+    <div style="color:#f5a623;font-weight:700;font-size:14px;margin-bottom:14px;">⚙️ オプション設定</div>
+
+    ${optList||'<div style="color:#6b7280;font-size:13px;margin-bottom:12px;">まだオプションがありません</div>'}
+
+    <div style="border-top:1px solid #2e3250;padding-top:14px;margin-top:4px;">
+      <div style="color:#e8eaf0;font-weight:700;font-size:13px;margin-bottom:10px;">${editingIdx>=0?'オプションを編集':'＋ オプションを追加'}</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="flex:2;min-width:140px;">
+          <div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">グループ名</div>
+          <input id="opt-name-inp" value="${eo.name}" oninput="window._menuState.editingOpt.name=this.value" placeholder="例: 辛さ、トッピング" style="font-size:13px;">
+        </div>
+        <div>
+          <div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">選択タイプ</div>
+          <div style="display:flex;gap:6px;">
+            <button onclick="window._menuState.editingOpt.type='single';render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${eo.type==='single'?'#5b8ef5':'#2e3250'};background:${eo.type==='single'?'rgba(91,142,245,.13)':'transparent'};color:${eo.type==='single'?'#5b8ef5':'#9ca3af'};font-size:12px;font-weight:700;">単一選択</button>
+            <button onclick="window._menuState.editingOpt.type='multi';render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${eo.type==='multi'?'#9b7fe8':'#2e3250'};background:${eo.type==='multi'?'rgba(155,127,232,.13)':'transparent'};color:${eo.type==='multi'?'#9b7fe8':'#9ca3af'};font-size:12px;font-weight:700;">複数選択</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#1a1d27;border-radius:8px;padding:12px;margin-bottom:10px;">
+        <div style="color:#9ca3af;font-size:11px;margin-bottom:8px;">選択肢 ${editingIdx>=0?'('+eo.choices.length+'件)':''}</div>
+        ${choiceList}
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;">
+          <div style="flex:2;min-width:100px;">
+            <div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">選択肢名</div>
+            <input id="choice-label-inp" value="${nc.label}" oninput="window._menuState.newChoice.label=this.value" placeholder="例: 辛め、チャーシュー" style="font-size:13px;">
+          </div>
+          <div style="width:100px;">
+            <div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">差額（円）</div>
+            <input id="choice-price-inp" type="number" value="${nc.price}" oninput="window._menuState.newChoice.price=Number(this.value)" placeholder="0" style="font-size:13px;">
+          </div>
+          <button class="btn-ghost" onclick="addChoice()" style="padding:7px 14px;font-size:13px;" ${editingIdx<0?'disabled':''}>追加</button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        ${editingIdx>=0
+          ?`<button class="btn-primary" onclick="saveOpt()" style="flex:1;padding:8px 0;font-size:13px;">オプションを保存</button>
+            <button class="btn-ghost" onclick="cancelEditOpt()" style="padding:8px 16px;font-size:13px;">取消</button>`
+          :`<button class="btn-ghost" onclick="startNewOpt()" style="flex:1;padding:8px 0;font-size:13px;">新しいグループを追加</button>`
+        }
+      </div>
+    </div>
+  </div>`;
+}
+
+function startNewOpt(){
+  const ms=window._menuState;
+  ms.editingOptIdx=ms.form.options.length;
+  ms.editingOpt={name:'',type:'single',choices:[]};
+  ms.newChoice={label:'',price:0};
+  render();
+}
+function startEditOpt(i){
+  const ms=window._menuState;
+  ms.editingOptIdx=i;
+  ms.editingOpt=JSON.parse(JSON.stringify(ms.form.options[i]));
+  ms.newChoice={label:'',price:0};
+  render();
+}
+function cancelEditOpt(){
+  const ms=window._menuState;
+  ms.editingOptIdx=-1;
+  ms.editingOpt={name:'',type:'single',choices:[]};
+  render();
+}
+function addChoice(){
+  const ms=window._menuState;
+  const el=document.getElementById('choice-label-inp');
+  const pel=document.getElementById('choice-price-inp');
+  const label=(el?el.value:ms.newChoice.label).trim();
+  const price=Number(pel?pel.value:ms.newChoice.price)||0;
+  if(!label){showToast('選択肢名を入力してください','error');return;}
+  ms.editingOpt.choices.push({label,price});
+  ms.newChoice={label:'',price:0};
+  render();
+}
+function removeChoice(ci){
+  window._menuState.editingOpt.choices.splice(ci,1);
+  render();
+}
+function saveOpt(){
+  const ms=window._menuState;
+  const el=document.getElementById('opt-name-inp');
+  if(el) ms.editingOpt.name=el.value.trim();
+  if(!ms.editingOpt.name){showToast('グループ名を入力してください','error');return;}
+  if(ms.editingOpt.choices.length===0){showToast('選択肢を1つ以上追加してください','error');return;}
+  if(ms.editingOptIdx>=ms.form.options.length){
+    ms.form.options.push({...ms.editingOpt});
+  }else{
+    ms.form.options[ms.editingOptIdx]={...ms.editingOpt};
+  }
+  ms.editingOptIdx=-1;
+  ms.editingOpt={name:'',type:'single',choices:[]};
+  render();
+}
+function removeOpt(i){
+  window._menuState.form.options.splice(i,1);
+  render();
+}
+
 // ── ドラッグ&ドロップ並べ替え ────────────────────────────────
 let _dragSrc = null;
 
@@ -951,7 +1202,7 @@ async function saveSortOrder(listEl){
 }
 
 function viewMenu(){
-  if(!window._menuState) window._menuState={editId:null,form:{name:'',price:'',category:STATE.categories[0]||''},newCat:'',error:''};
+  if(!window._menuState) window._menuState={editId:null,form:{name:'',price:'',category:STATE.categories[0]||'',options:[]},newCat:'',error:'',showOptPanel:false,editingOpt:{name:'',type:'single',choices:[]},editingOptIdx:-1,newChoice:{label:'',price:0}};
   const ms=window._menuState;
   const catTags=STATE.categories.map(c=>`
     <div style="display:flex;align-items:center;gap:4px;background:#22263a;border-radius:8px;padding:5px 10px;border:1px solid #2e3250;">
@@ -1006,8 +1257,10 @@ function viewMenu(){
         <div style="flex:1;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メニュー名</div><input id="menu-name-inp" value="${ms.form.name}" oninput="window._menuState.form.name=this.value" placeholder="例: 餃子"></div>
         <div style="width:120px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">価格（円）</div><input id="menu-price-inp" type="number" value="${ms.form.price}" oninput="window._menuState.form.price=this.value" placeholder="500"></div>
         <button class="btn-primary" onclick="saveMenuItem()" style="padding:8px 16px;">${ms.editId?'更新':'追加'}</button>
-        ${ms.editId?`<button class="btn-ghost" onclick="window._menuState.editId=null;window._menuState.form={name:'',price:'',category:STATE.categories[0]||''};render()" style="padding:8px 16px;">取消</button>`:''}
+        <button class="btn-ghost" onclick="window._menuState.showOptPanel=!window._menuState.showOptPanel;render()" style="padding:8px 16px;">⚙️ オプション${ms.form.options&&ms.form.options.length>0?' ('+ms.form.options.length+')':''}</button>
+        ${ms.editId?`<button class="btn-ghost" onclick="window._menuState.editId=null;window._menuState.form={name:'',price:'',category:STATE.categories[0]||'',options:[]};window._menuState.showOptPanel=false;render()" style="padding:8px 16px;">取消</button>`:''}
       </div>
+      ${ms.showOptPanel?optionPanel(ms):''}
     </div>
     ${menuItems}</div>`;
 }
@@ -1046,8 +1299,8 @@ async function saveMenuItem(){
   if(priceEl) ms.form.price=priceEl.value;
   if(catEl) ms.form.category=catEl.value;
   if(!ms.form.name||!ms.form.price){showToast('名前と価格を入力してください','error');return;}
-  if(ms.editId){await sdb.update('menu',[['id','eq',ms.editId]],{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});ms.editId=null;}
-  else{await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price)});}
+  const opts=ms.form.options||[];  if(ms.editId){await sdb.update('menu',[['id','eq',ms.editId]],{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price),options_json:JSON.stringify(opts)});ms.editId=null;}
+  else{await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price),options_json:JSON.stringify(opts)});}
   ms.form={name:'',price:'',category:STATE.categories[0]||''};ms.error='';
   const r=await sdb.get('menu',[],'sort_order');
   if(Array.isArray(r))STATE.menu=r.filter(m=>m.active!==false&&m.active!=='false');
@@ -1055,7 +1308,11 @@ async function saveMenuItem(){
 }
 function editMenuItem(id){
   const item=STATE.menu.find(m=>m.id===id);
-  window._menuState.editId=id;window._menuState.form={name:item.name,price:String(item.price),category:item.category};render();
+  const opts=item.options_json?JSON.parse(item.options_json):[];
+  window._menuState.editId=id;
+  window._menuState.form={name:item.name,price:String(item.price),category:item.category,options:opts};
+  window._menuState.showOptPanel=true;
+  render();
 }
 async function deleteMenuItem(id){
   const item=STATE.menu.find(m=>m.id===id);
