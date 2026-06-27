@@ -881,6 +881,75 @@ async function doCloseRegister(){
 // ═══════════════════════════════════════════
 // ビュー: メニュー管理
 // ═══════════════════════════════════════════
+// ── ドラッグ&ドロップ並べ替え ────────────────────────────────
+let _dragSrc = null;
+
+function initMenuSort(){
+  document.querySelectorAll('.menu-sort-list').forEach(list=>{
+    list.querySelectorAll('.menu-sort-item').forEach(item=>{
+      item.addEventListener('dragstart', e=>{
+        _dragSrc = item;
+        e.dataTransfer.effectAllowed = 'move';
+        item.style.opacity = '0.4';
+      });
+      item.addEventListener('dragend', e=>{
+        item.style.opacity = '1';
+        document.querySelectorAll('.menu-sort-item').forEach(i=>i.style.borderColor='');
+      });
+      item.addEventListener('dragover', e=>{
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if(item !== _dragSrc){
+          item.style.borderColor = '#f5a623';
+        }
+      });
+      item.addEventListener('dragleave', e=>{
+        item.style.borderColor = '';
+      });
+      item.addEventListener('drop', e=>{
+        e.preventDefault();
+        if(!_dragSrc || _dragSrc === item) return;
+        item.style.borderColor = '';
+        // 同じカテゴリー内のみ並べ替え
+        const srcCat = _dragSrc.dataset.cat;
+        const dstCat = item.dataset.cat;
+        if(srcCat !== dstCat){ showToast('同じカテゴリー内でのみ並べ替えできます','error'); return; }
+        // DOM上で入れ替え
+        const parent = item.parentNode;
+        const items = [...parent.querySelectorAll('.menu-sort-item')];
+        const srcIdx = items.indexOf(_dragSrc);
+        const dstIdx = items.indexOf(item);
+        if(srcIdx < dstIdx){
+          parent.insertBefore(_dragSrc, item.nextSibling);
+        } else {
+          parent.insertBefore(_dragSrc, item);
+        }
+        // 新しい順序でsort_orderを更新
+        saveSortOrder(parent);
+      });
+    });
+  });
+}
+
+async function saveSortOrder(listEl){
+  const items = [...listEl.querySelectorAll('.menu-sort-item')];
+  const updates = items.map((el,i)=>({id:Number(el.dataset.id), sort_order:i}));
+  // STATE.menuを更新
+  updates.forEach(u=>{
+    const m = STATE.menu.find(m=>m.id===u.id);
+    if(m) m.sort_order = u.sort_order;
+  });
+  // Supabaseに保存（並列）
+  try{
+    await Promise.all(updates.map(u=>
+      sdb.update('menu',[['id','eq',u.id]],{sort_order:u.sort_order})
+    ));
+    showToast('並び順を保存しました');
+  }catch(e){
+    showToast('保存失敗: '+e.message,'error');
+  }
+}
+
 function viewMenu(){
   if(!window._menuState) window._menuState={editId:null,form:{name:'',price:'',category:STATE.categories[0]||''},newCat:'',error:''};
   const ms=window._menuState;
@@ -895,15 +964,28 @@ function viewMenu(){
   const menuItems=STATE.categories.map(cat=>{
     const items=STATE.menu.filter(m=>m.category===cat);
     if(!items.length)return'';
-    const cards=items.map(item=>`
-      <div class="card" style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
-        <div><div style="color:#e8eaf0;font-weight:700;">${item.name}</div><div style="color:#f5a623;font-weight:800;font-size:15px;">${fmt(item.price)}</div></div>
+    const cards=items.map((item,idx)=>`
+      <div class="card menu-sort-item" data-id="${item.id}" data-cat="${cat}" draggable="true"
+        style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:default;transition:opacity .2s,border-color .2s;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="drag-handle" style="color:#2e3250;font-size:18px;cursor:grab;user-select:none;padding:0 4px;" title="ドラッグで並べ替え">⠿</span>
+          <div>
+            <div style="color:#e8eaf0;font-weight:700;">${item.name}</div>
+            <div style="color:#f5a623;font-weight:800;font-size:15px;">${fmt(item.price)}</div>
+          </div>
+        </div>
         <div style="display:flex;gap:6px;">
           <button class="btn-ghost" onclick="editMenuItem(${item.id})" style="padding:6px 10px;font-size:12px;">編集</button>
           <button class="btn-danger" onclick="deleteMenuItem(${item.id})" style="padding:6px 10px;font-size:12px;">削除</button>
         </div>
       </div>`).join('');
-    return `<div style="margin-bottom:20px;"><div style="color:#9ca3af;font-size:13px;font-weight:700;margin-bottom:8px;">${cat}</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">${cards}</div></div>`;
+    return `<div style="margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div style="color:#9ca3af;font-size:13px;font-weight:700;">${cat}</div>
+        <div style="color:#6b7280;font-size:11px;">← ドラッグで並べ替え</div>
+      </div>
+      <div class="menu-sort-list" data-cat="${cat}" style="display:flex;flex-direction:column;gap:8px;">${cards}</div>
+    </div>`;
   }).join('');
 
   return `<div><h2>メニュー管理</h2>
@@ -1140,6 +1222,8 @@ function render(){
   }
 
   document.getElementById('app').innerHTML=header+`<main>${mainHTML}</main><div id="toast-area"></div>`;
+  // メニュー管理画面ならドラッグ&ドロップを初期化
+  if(STATE.view==='menu') requestAnimationFrame(initMenuSort);
 }
 
 function setView(v){
