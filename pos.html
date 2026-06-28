@@ -534,12 +534,12 @@ async function doAddItem(item, selectedOpts, extraPrice=0){
   if(!t){showToast('テーブルが見つかりません','error');return;}
   const order = JSON.parse(t.order_json||'[]');
   const finalPrice = item.price + (extraPrice||0);
-  // オプションが同じ既存アイテムを探す
+  // オプションが同じ既存アイテムを探す（括弧修正済み）
   const optKey = JSON.stringify(selectedOpts);
-  const ex = order.find(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[]===optKey));
+  const ex = order.find(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[])==optKey);
   const newOrder = ex
     ? order.map(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[])==optKey?{...o,qty:o.qty+1}:o)
-    : [...order,{id:item.id,name:item.name,price:finalPrice,basePrice:item.price,extraPrice,selectedOpts,category:item.category,qty:1,served:false}];
+    : [...order,{id:item.id,name:item.name,price:finalPrice,basePrice:item.price,extraPrice:extraPrice||0,selectedOpts,category:item.category,qty:1,served:false}];
   await syncTable(STATE.selId,{order_json:JSON.stringify(newOrder)});
 }
 async function removeItem(itemId){
