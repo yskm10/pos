@@ -370,17 +370,22 @@ function viewOrder(){
       </div>
       <div style="display:flex;gap:4px;align-items:center;">
         <span style="color:#f5a623;font-weight:700;font-size:13px;">${fmt(item.price*item.qty)}</span>
-        <button style="background:rgba(76,175,128,.2);border:none;border-radius:5px;color:#4caf80;width:22px;height:22px;font-size:13px;padding:0;" onclick="markServed('${t.id}','${item.id}')">✓</button>
-        <button style="background:rgba(224,82,82,.2);border:none;border-radius:5px;color:#e05252;width:22px;height:22px;font-weight:800;font-size:13px;padding:0;" onclick="removeItem('${item.id}')">−</button>
+        <button style="background:rgba(76,175,128,.2);border:none;border-radius:5px;color:#4caf80;width:22px;height:22px;font-size:13px;padding:0;" onclick="markServed('${t.id}','${item.id}')" title="提供済みにする">✓</button>
+        <button style="background:rgba(224,82,82,.2);border:none;border-radius:5px;color:#e05252;width:22px;height:22px;font-weight:800;font-size:13px;padding:0;" onclick="removeItem('${item.id}')" title="1個減らす">−</button>
+        <button style="background:rgba(224,82,82,.35);border:none;border-radius:5px;color:#ff8585;width:22px;height:22px;font-size:12px;padding:0;" onclick="cancelOrderItem('${item.uid||item.id}')" title="この注文を取消">✕</button>
       </div>
     </div>`).join('');
 
   const servedRows = served.length>0?`
-    <details style="margin-top:8px;">
+    <details style="margin-top:8px;" open>
       <summary style="color:#4caf80;font-size:11px;font-weight:700;">── 提供済み ${served.length}品 ──</summary>
-      ${served.map(item=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;opacity:0.55;border-bottom:1px solid #2e3250;">
-        <span style="color:#e8eaf0;text-decoration:line-through;">${item.name} × ${item.qty}</span>
-        <span style="color:#9ca3af;">${fmt(item.price*item.qty)}</span>
+      ${served.map(item=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:13px;border-bottom:1px solid #2e3250;">
+        <div style="opacity:0.55;flex:1;">
+          <span style="color:#e8eaf0;text-decoration:line-through;">${item.name} × ${item.qty}</span>
+          ${item.selectedOpts&&item.selectedOpts.length>0?`<div style="color:#6b7280;font-size:10px;">${item.selectedOpts.map(o=>o.chosen.map(c=>c.label).join('/')).join(' · ')}</div>`:''}
+        </div>
+        <span style="color:#9ca3af;opacity:0.55;margin-right:6px;">${fmt(item.price*item.qty)}</span>
+        <button style="background:rgba(224,82,82,.35);border:none;border-radius:5px;color:#ff8585;width:20px;height:20px;font-size:11px;padding:0;flex-shrink:0;" onclick="cancelOrderItem('${item.uid||item.id}')" title="この注文を取消">✕</button>
       </div>`).join('')}
     </details>`:'';
 
@@ -529,6 +534,34 @@ async function confirmOpt(){
   await doAddItem(item, selectedOpts, extra);
 }
 
+async function cancelOrderItemFor(tableId, itemUid){
+  const t = STATE.tables.find(t=>t.id===tableId);
+  if(!t) return;
+  const order = JSON.parse(t.order_json||'[]');
+  const target = order.find(o=>(o.uid?String(o.uid):String(o.id))===String(itemUid));
+  if(!target) return;
+  const label = target.name + (target.qty>1?` × ${target.qty}`:'') + (target.served?'（提供済み）':'');
+  confirm2(`「${label}」を取消しますか？<br><span style="font-size:12px;color:#9ca3af;">この操作は元に戻せません</span>`, async()=>{
+    const newOrder = order.filter(o=>(o.uid?String(o.uid):String(o.id))!==String(itemUid));
+    await syncTable(tableId,{order_json:JSON.stringify(newOrder)});
+    showToast(label+' を取消しました');
+  });
+}
+
+async function cancelOrderItem(itemUid){
+  const t = STATE.tables.find(t=>t.id===STATE.selId);
+  if(!t) return;
+  const order = JSON.parse(t.order_json||'[]');
+  const target = order.find(o=>(o.uid?String(o.uid):String(o.id))===String(itemUid));
+  if(!target) return;
+  const label = target.name + (target.qty>1?` × ${target.qty}`:'') + (target.served?'（提供済み）':'');
+  confirm2(`「${label}」を取消しますか？<br><span style="font-size:12px;color:#9ca3af;">この操作は元に戻せません</span>`, async()=>{
+    const newOrder = order.filter(o=>(o.uid?String(o.uid):String(o.id))!==String(itemUid));
+    await syncTable(STATE.selId,{order_json:JSON.stringify(newOrder)});
+    showToast(label+' を取消しました');
+  });
+}
+
 async function doAddItem(item, selectedOpts, extraPrice=0){
   const t = STATE.tables.find(t=>t.id===STATE.selId);
   if(!t){showToast('テーブルが見つかりません','error');return;}
@@ -539,17 +572,23 @@ async function doAddItem(item, selectedOpts, extraPrice=0){
   const ex = order.find(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[])==optKey);
   const newOrder = ex
     ? order.map(o=>o.id===item.id&&!o.served&&JSON.stringify(o.selectedOpts||[])==optKey?{...o,qty:o.qty+1}:o)
-    : [...order,{id:item.id,name:item.name,price:finalPrice,basePrice:item.price,extraPrice:extraPrice||0,selectedOpts,category:item.category,qty:1,served:false}];
+    : [...order,{uid:Date.now()+'_'+Math.random().toString(36).slice(2,7),id:item.id,name:item.name,price:finalPrice,basePrice:item.price,extraPrice:extraPrice||0,selectedOpts,category:item.category,qty:1,served:false}];
   await syncTable(STATE.selId,{order_json:JSON.stringify(newOrder)});
 }
-async function removeItem(itemId){
+async function removeItem(itemUid){
   const t = STATE.tables.find(t=>t.id===STATE.selId);
-  const order = JSON.parse(t.order_json||'[]').map(o=>o.id===itemId&&!o.served?{...o,qty:o.qty-1}:o).filter(o=>o.qty>0);
+  const order = JSON.parse(t.order_json||'[]').map(o=>{
+    const matchUid = o.uid ? String(o.uid)===String(itemUid) : String(o.id)===String(itemUid);
+    return matchUid&&!o.served ? {...o,qty:o.qty-1} : o;
+  }).filter(o=>o.qty>0);
   await syncTable(STATE.selId,{order_json:JSON.stringify(order)});
 }
-async function markServed(tableId,itemId){
+async function markServed(tableId,itemUid){
   const t = STATE.tables.find(t=>t.id===tableId);
-  const order = JSON.parse(t.order_json||'[]').map(o=>String(o.id)===String(itemId)&&!o.served?{...o,served:true}:o);
+  const order = JSON.parse(t.order_json||'[]').map(o=>{
+    const matchUid = o.uid ? String(o.uid)===String(itemUid) : String(o.id)===String(itemUid);
+    return matchUid&&!o.served ? {...o,served:true} : o;
+  });
   await syncTable(tableId,{order_json:JSON.stringify(order)});
 }
 function goCheckout(){syncTable(STATE.selId,{status:'会計待ち'});STATE.view='checkout';STATE.checkoutMethod='現金';STATE.checkoutReceived='';render();}
@@ -674,10 +713,13 @@ function viewOrderList(){
     const borderColor=pending.length>0?'rgba(245,166,35,.3)':'rgba(76,175,128,.3)';
     const pendingRows=pending.map(item=>`
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #2e3250;">
-        <div><span style="color:#e8eaf0;font-weight:600;font-size:14px;">${item.name}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">× ${item.qty}</span>${item.selectedOpts&&item.selectedOpts.length>0?`<div style="color:#f5a623;font-size:11px;margin-top:2px;">${item.selectedOpts.map(o=>o.chosen.map(c=>c.label).join('/')).join(' · ')}</div>`:''}</div>
-        <button onclick="markServed('${t.id}','${item.id}')" style="background:rgba(76,175,128,.2);border:1px solid rgba(76,175,128,.3);border-radius:7px;color:#4caf80;padding:5px 14px;font-weight:700;font-size:13px;">✓ 提供済み</button>
+        <div style="flex:1;"><span style="color:#e8eaf0;font-weight:600;font-size:14px;">${item.name}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">× ${item.qty}</span>${item.selectedOpts&&item.selectedOpts.length>0?`<div style="color:#f5a623;font-size:11px;margin-top:2px;">${item.selectedOpts.map(o=>o.chosen.map(c=>c.label).join('/')).join(' · ')}</div>`:''}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+          <button onclick="markServed('${t.id}','${item.uid||item.id}')" style="background:rgba(76,175,128,.2);border:1px solid rgba(76,175,128,.3);border-radius:7px;color:#4caf80;padding:5px 14px;font-weight:700;font-size:13px;">✓ 提供済み</button>
+          <button onclick="cancelOrderItemFor('${t.id}','${item.uid||item.id}')" style="background:rgba(224,82,82,.2);border:1px solid rgba(224,82,82,.3);border-radius:7px;color:#ff8585;padding:5px 10px;font-weight:700;font-size:13px;" title="取消">✕</button>
+        </div>
       </div>`).join('');
-    const servedDetails=served.length>0?`<details style="margin-top:8px;"><summary style="color:#9ca3af;font-size:12px;">提供済み ${served.length}品</summary>${served.map(i=>`<div style="font-size:13px;opacity:.55;padding:3px 0;color:#e8eaf0;text-decoration:line-through;">${i.name} × ${i.qty}</div>`).join('')}</details>`:'';
+    const servedDetails=served.length>0?`<details style="margin-top:8px;" open><summary style="color:#9ca3af;font-size:12px;">提供済み ${served.length}品</summary>${served.map(i=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;"><span style="font-size:13px;opacity:.55;color:#e8eaf0;text-decoration:line-through;">${i.name} × ${i.qty}</span><button onclick="cancelOrderItemFor('${t.id}','${i.uid||i.id}')" style="background:rgba(224,82,82,.2);border:none;border-radius:5px;color:#ff8585;width:20px;height:20px;font-size:11px;padding:0;flex-shrink:0;" title="取消">✕</button></div>`).join('')}</details>`:'';
     return `<div class="card" style="border:1px solid ${borderColor};">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <div style="display:flex;align-items:center;gap:8px;">
