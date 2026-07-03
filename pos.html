@@ -106,6 +106,39 @@ function showToast(msg, type='ok'){
   toastTimer = setTimeout(()=>{ if(el) el.innerHTML=''; }, 3500);
 }
 
+
+// ═══════════════════════════════════════════
+// キャッシュドロワー制御（ePOS-Print API）
+// ═══════════════════════════════════════════
+async function openCashDrawer(){
+  const ip   = STATE.shop.printerIp||'';
+  const port = STATE.shop.printerPort||'8008';
+  if(!ip){ showToast('プリンターIPが未設定です（設定画面で入力してください）','error'); return; }
+  const url = `http://${ip}:${port}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`;
+  // ePOS-Print XML: ドロワー開放コマンド（DLE EOT + pulse）
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
+      <pulse drawer="drawer_1" time="pulse_100" />
+    </epos-print>
+  </s:Body>
+</s:Envelope>`;
+  try{
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': '""',
+      },
+      body: xml,
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    showToast('ドロワーを開きました');
+  }catch(e){
+    showToast('ドロワー開放失敗: '+e.message,'error');
+  }
+}
 // ═══════════════════════════════════════════
 // 確認ダイアログ
 // ═══════════════════════════════════════════
@@ -695,6 +728,7 @@ async function doComplete(){
   await syncTable(STATE.selId,{status:'空席',order_json:'[]',opened_at:null});
   const r = await sdb.get('sales',[],'created_at.desc',500);
   if(Array.isArray(r)) STATE.sales=r;
+  if(method==='現金') openCashDrawer();
   showToast(t.name+' の会計が完了しました');
   STATE.view='tables'; STATE.selId=null;
   render();
@@ -992,7 +1026,7 @@ function viewCash(){
       </div>`).join('');
   }
 
-  return `<div style="max-width:760px;"><h2>レジ金管理</h2><div style="display:flex;gap:6px;margin-bottom:20px;">${tabBtns}</div>${content}</div>`;
+  return `<div style="max-width:760px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h2 style="margin-bottom:0;">レジ金管理</h2><button class="btn-ghost" onclick="openCashDrawer()" style="padding:8px 18px;font-size:14px;">🔓 ドロワーを開く</button></div><div style="display:flex;gap:6px;margin-bottom:20px;">${tabBtns}</div>${content}</div>`;
 }
 
 function updateOpenCount(v,val){window._cashState.openCounts[v]=val;render();}
@@ -1435,15 +1469,69 @@ function viewSettings(){
           <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">${f.l}</div>
           <input id="shop-${f.k}" value="${s[f.k]||''}" placeholder="${f.p}">
         </div>`).join('')}
+      <div style="margin-bottom:14px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">プリンターIPアドレス（TM-m30II-H）</div>
+        <input id="shop-printerIp" value="${s.printerIp||''}" placeholder="192.168.1.100">
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">プリンターポート番号</div>
+        <input id="shop-printerPort" value="${s.printerPort||'8008'}" placeholder="8008">
+      </div>
     </div>
     <button class="btn-primary" onclick="saveShop()" style="width:100%;padding:12px 0;font-size:16px;">設定を保存</button>
+    <div style="margin-top:12px;padding:14px;background:#22263a;border-radius:10px;border:1px solid #2e3250;">
+      <div style="color:#9ca3af;font-size:12px;margin-bottom:10px;">🖨 プリンター・ドロワーテスト</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-ghost" onclick="testDrawer()" style="flex:1;padding:10px 0;font-size:14px;">🔓 ドロワーを開く</button>
+        <button class="btn-ghost" onclick="testPrint()" style="flex:1;padding:10px 0;font-size:14px;">🖨 テスト印刷</button>
+      </div>
+      <div style="color:#9ca3af;font-size:11px;margin-top:8px;line-height:1.6;">
+        ※ プリンターと同じWi-Fiに接続し、IPアドレスを保存してからテストしてください<br>
+        ※ 初回はブラウザで <span style="color:#5b8ef5;">http://[IPアドレス]:8008</span> を開いて接続を許可する必要があります
+      </div>
+    </div>
     <div style="margin-top:16px;text-align:center;">
       <button onclick="doDisconnect()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;text-decoration:underline;">Supabase接続を解除する</button>
     </div>
   </div>`;
 }
+function testDrawer(){
+  if(!STATE.shop.printerIp){ showToast('IPアドレスを設定・保存してください','error'); return; }
+  openCashDrawer();
+}
+
+async function testPrint(){
+  if(!STATE.shop.printerIp){ showToast('IPアドレスを設定・保存してください','error'); return; }
+  const ip   = STATE.shop.printerIp;
+  const port = STATE.shop.printerPort||'8008';
+  const url  = `http://${ip}:${port}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`;
+  const xml  = `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
+      <text align="center" lang="ja"/>
+      <text>\n</text>
+      <text width="2" height="2">${STATE.shop.name||'POSシステム'}\n</text>
+      <text width="1" height="1"/>
+      <text>テスト印刷\n</text>
+      <text>${new Date().toLocaleString('ja-JP')}\n</text>
+      <text>\n</text>
+      <feed line="3"/>
+      <cut type="part"/>
+    </epos-print>
+  </s:Body>
+</s:Envelope>`;
+  try{
+    const res = await fetch(url,{ method:'POST', headers:{'Content-Type':'text/xml; charset=utf-8','SOAPAction':'""'}, body:xml });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    showToast('テスト印刷しました');
+  }catch(e){
+    showToast('印刷失敗: '+e.message,'error');
+  }
+}
+
 async function saveShop(){
-  const fields=['name','address','tel','registrationNo','message'];
+  const fields=['name','address','tel','registrationNo','message','printerIp','printerPort'];
   const data={};fields.forEach(k=>{data[k]=document.getElementById('shop-'+k)?.value||'';});
   confirmAction('店舗設定を保存しますか？', '保存する', async()=>{
     await sdb.upsert('settings',{key:'shop',value:JSON.stringify(data)});
