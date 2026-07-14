@@ -112,28 +112,21 @@ function showToast(msg, type='ok'){
 // ═══════════════════════════════════════════
 async function openCashDrawer(){
   const ip   = STATE.shop.printerIp||'';
-  const port = STATE.shop.printerPort||'8008';
+  const port = STATE.shop.printerPort||'9100';
   if(!ip){ showToast('プリンターIPが未設定です（設定画面で入力してください）','error'); return; }
   const url = `http://${ip}:${port}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`;
-  // ePOS-Print XML: ドロワー開放コマンド（DLE EOT + pulse）
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
-      <pulse drawer="drawer_1" time="pulse_100" />
-    </epos-print>
-  </s:Body>
-</s:Envelope>`;
+  const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><pulse drawer="drawer_1" time="pulse_100"/></epos-print></s:Body></s:Envelope>`;
   try{
-    const res = await fetch(url, {
+    // no-corsモードで送信（CORSエラー回避）
+    await fetch(url, {
       method: 'POST',
+      mode: 'no-cors',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
         'SOAPAction': '""',
       },
       body: xml,
     });
-    if(!res.ok) throw new Error('HTTP '+res.status);
     showToast('ドロワーを開きました');
   }catch(e){
     showToast('ドロワー開放失敗: '+e.message,'error');
@@ -1522,8 +1515,7 @@ async function testPrint(){
   </s:Body>
 </s:Envelope>`;
   try{
-    const res = await fetch(url,{ method:'POST', headers:{'Content-Type':'text/xml; charset=utf-8','SOAPAction':'""'}, body:xml });
-    if(!res.ok) throw new Error('HTTP '+res.status);
+    await fetch(url,{ method:'POST', mode:'no-cors', headers:{'Content-Type':'text/xml; charset=utf-8','SOAPAction':'""'}, body:xml });
     showToast('テスト印刷しました');
   }catch(e){
     showToast('印刷失敗: '+e.message,'error');
