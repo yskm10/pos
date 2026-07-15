@@ -116,17 +116,16 @@ async function openCashDrawer(){
   if(!ip){ showToast('プリンターIPが未設定です（設定画面で入力してください）','error'); return; }
   const url = `http://${ip}:${port}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`;
   const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><pulse drawer="drawer_1" time="pulse_100"/></epos-print></s:Body></s:Envelope>`;
-  // XHRを使用（プリフライトを回避）
+  // Blobでcontent-typeを指定してXHR送信
   return new Promise((resolve)=>{
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
-    xhr.setRequestHeader('SOAPAction', '""');
     xhr.onload  = ()=>{ showToast('ドロワーを開きました'); resolve(); };
     xhr.onerror = ()=>{ showToast('ドロワー開放失敗: 接続エラー','error'); resolve(); };
     xhr.ontimeout = ()=>{ showToast('ドロワー開放失敗: タイムアウト','error'); resolve(); };
     xhr.timeout = 5000;
-    xhr.send(xml);
+    const blob = new Blob([xml], {type: 'text/xml; charset=utf-8'});
+    xhr.send(blob);
   });
 }
 // ═══════════════════════════════════════════
@@ -1514,13 +1513,12 @@ async function testPrint(){
   return new Promise((resolve)=>{
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'text/xml; charset=utf-8');
-    xhr.setRequestHeader('SOAPAction', '""');
     xhr.onload  = ()=>{ showToast('テスト印刷しました'); resolve(); };
     xhr.onerror = ()=>{ showToast('印刷失敗: 接続エラー','error'); resolve(); };
     xhr.ontimeout = ()=>{ showToast('印刷失敗: タイムアウト','error'); resolve(); };
     xhr.timeout = 5000;
-    xhr.send(xml);
+    const blob = new Blob([xml], {type: 'text/xml; charset=utf-8'});
+    xhr.send(blob);
   });
 }
 
