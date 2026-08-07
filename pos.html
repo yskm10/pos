@@ -27,7 +27,7 @@ h2{color:#e8eaf0;margin-bottom:20px;font-size:20px;}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toast{position:fixed;bottom:24px;right:24px;background:#1a1d27;border-radius:10px;padding:12px 20px;font-weight:700;font-size:14px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px;animation:fadeIn .2s;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-nav{background:#1a1d27;border-bottom:1px solid #2e3250;padding:0 16px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+nav{background:#1a1d27;border-bottom:1px solid #2e3250;padding:8px 16px;min-height:54px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:100;}
 .nav-btn{background:transparent;border:1px solid transparent;color:#9ca3af;padding:5px 10px;font-size:12px;border-radius:7px;position:relative;}
 .nav-btn.active{background:rgba(245,166,35,.13);border-color:#f5a623;color:#f5a623;}
 .badge-dot{position:absolute;top:-4px;right:-4px;background:#e05252;color:#fff;border-radius:99px;font-size:10px;font-weight:800;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px;}
@@ -47,6 +47,38 @@ details summary::-webkit-details-marker{display:none;}
 ::-webkit-scrollbar{width:6px;}
 ::-webkit-scrollbar-track{background:#1a1d27;}
 ::-webkit-scrollbar-thumb{background:#2e3250;border-radius:3px;}
+
+/* ─────────── スマホ対応（iPhone等の狭い画面） ─────────── */
+@media (max-width: 768px){
+  main{padding:12px;}
+  nav{padding:8px 12px;}
+  .nav-btn{padding:5px 8px;font-size:11px;}
+
+  /* 注文画面：横並び2カラム→縦積みに変更 */
+  .order-layout{flex-direction:column;height:auto;}
+  .order-panel{width:100%;max-height:45vh;}
+  .menu-grid{min-height:300px;}
+  .menu-items{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));}
+
+  /* 注文一覧カード：300px最小幅だと1カラムでも窮屈なので縮める */
+  .grid-auto{grid-template-columns:1fr;}
+
+  /* テーブル一覧カードも少し縮める */
+  .grid-tables{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));}
+
+  /* 各種パネルのmax-widthを画面幅に合わせて解放 */
+  div[style*="max-width:680px"],
+  div[style*="max-width:760px"],
+  div[style*="max-width:560px"],
+  div[style*="max-width:520px"]{
+    max-width:100% !important;
+  }
+}
+
+@media (max-width: 480px){
+  .nav-btn{padding:4px 6px;font-size:10px;}
+  nav > div:first-child span{font-size:14px;}
+}
 </style>
 </head>
 <body>
