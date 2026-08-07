@@ -82,7 +82,7 @@ const denomTotal = c => DENOMS.reduce((s,d)=>s+d.v*(Number(c[d.v])||0),0);
 const calcSub   = o => o.reduce((s,i)=>s+i.price*i.qty,0);
 const calcTax   = s => Math.floor(s*0.1);
 const calcTotal = s => s+calcTax(s);
-const fmt       = n => '¥'+Number(n).toLocaleString();
+const fmt       = n => '\uFFE5'+Number(n).toLocaleString();
 const todayStr  = () => new Date().toLocaleDateString('sv-SE');
 const nowStr    = () => new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 function elapsed(t){if(!t)return'';const m=Math.floor((Date.now()-new Date(t))/60000);return m<60?m+'分':Math.floor(m/60)+'時間'+m%60+'分';}
@@ -703,18 +703,19 @@ async function doPrint(){
   const sub=calcSub(order),tax=calcTax(sub),total=calcTotal(sub);
   const method=STATE.checkoutMethod||'現金';
   const change=Number(STATE.checkoutReceived)-total;
-  const lines=['================================',`　　${STATE.shop.name}`,'================================',
+  const SEP_EQ = '='.repeat(44), SEP_DASH = '-'.repeat(44);
+  const lines=[SEP_EQ,`　　${STATE.shop.name}`,SEP_EQ,
     STATE.shop.address||'',`TEL: ${STATE.shop.tel||''}`,`登録番号: ${STATE.shop.registrationNo||''}`,
-    '--------------------------------','　　　領　収　書',nowStr(),`テーブル: ${t.name}`,'--------------------------------',
+    SEP_DASH,'　　　領　収　書',nowStr(),`テーブル: ${t.name}`,SEP_DASH,
     ...order.map(i=>`${padStr(i.name,14)} ×${i.qty} ${fmt(i.price*i.qty)}`),
-    '--------------------------------',`${padStr('小計',12)}${fmt(sub)}`,`${padStr('消費税(10%)',12)}${fmt(tax)}`,
-    '================================',`${padStr('合　計',12)}${fmt(total)}`,`${padStr('お支払い',12)}${method}`,
+    SEP_DASH,`${padStr('小計',12)}${fmt(sub)}`,`${padStr('消費税(10%)',12)}${fmt(tax)}`,
+    SEP_EQ,`${padStr('合　計',12)}${fmt(total)}`,`${padStr('お支払い',12)}${method}`,
     ...(method==='現金'&&change>=0?[`${padStr('お釣り',12)}${fmt(change)}`]:[]),
-    '--------------------------------',`　${STATE.shop.message||''}`,''
+    SEP_DASH,`　${STATE.shop.message||''}`,''
   ];
   const el = document.getElementById('print-status');
   const escXml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const body = lines.map(l=>`<text lang="ja">${escXml(l)}&#10;</text>`).join('') + '<cut type="feed"/>';
+  const body = '<text font="font_b"/>' + lines.map(l=>`<text lang="ja">${escXml(l)}&#10;</text>`).join('') + '<cut type="feed"/>';
   const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body}</epos-print></s:Body></s:Envelope>`;
   try{
     const res = await fetch('/printer/', {
@@ -1505,13 +1506,8 @@ function viewSettings(){
           <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">${f.l}</div>
           <input id="shop-${f.k}" value="${s[f.k]||''}" placeholder="${f.p}">
         </div>`).join('')}
-      <div style="margin-bottom:14px;">
-        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">プリンターIPアドレス（TM-m30II-H）</div>
-        <input id="shop-printerIp" value="${s.printerIp||''}" placeholder="192.168.1.100">
-      </div>
-      <div style="margin-bottom:14px;">
-        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">プリンターポート番号</div>
-        <input id="shop-printerPort" value="${s.printerPort||'8008'}" placeholder="8008">
+      <div style="margin-bottom:14px;padding:10px 12px;background:#22263a;border-radius:8px;">
+        <div style="color:#6b7280;font-size:11px;line-height:1.6;">🖨 プリンター接続先はPCのプロキシサーバー（proxy.py）側で設定します。この画面での設定は不要です。</div>
       </div>
     </div>
     <button class="btn-primary" onclick="saveShop()" style="width:100%;padding:12px 0;font-size:16px;">設定を保存</button>
@@ -1532,31 +1528,14 @@ function viewSettings(){
   </div>`;
 }
 function testDrawer(){
-  if(!STATE.shop.printerIp){ showToast('IPアドレスを設定・保存してください','error'); return; }
   openCashDrawer();
 }
 
 async function testPrint(){
-  if(!STATE.shop.printerIp){ showToast('IPアドレスを設定・保存してください','error'); return; }
-  const ip   = STATE.shop.printerIp;
-  const port = STATE.shop.printerPort||'8008';
-  const url  = `http://${ip}:${port}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=5000`;
-  const xml  = `<?xml version="1.0" encoding="utf-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
-      <text align="center" lang="ja"/>
-      <text>\n</text>
-      <text width="2" height="2">${STATE.shop.name||'POSシステム'}\n</text>
-      <text width="1" height="1"/>
-      <text>テスト印刷\n</text>
-      <text>${new Date().toLocaleString('ja-JP')}\n</text>
-      <text>\n</text>
-      <feed line="3"/>
-      <cut type="part"/>
-    </epos-print>
-  </s:Body>
-</s:Envelope>`;
+  const escXml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const shopName = escXml(STATE.shop.name||'POSシステム');
+  const dateStr  = escXml(new Date().toLocaleString('ja-JP'));
+  const xml  = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><text font="font_b"/><text align="center" lang="ja">${shopName}&#10;</text><text align="center" lang="ja">テスト印刷&#10;</text><text align="center" lang="ja">${dateStr}&#10;</text><cut type="feed"/></epos-print></s:Body></s:Envelope>`;
   try{
     const res = await fetch('/test-print/', {
       method: 'POST',
@@ -1570,7 +1549,7 @@ async function testPrint(){
 }
 
 async function saveShop(){
-  const fields=['name','address','tel','registrationNo','message','printerIp','printerPort'];
+  const fields=['name','address','tel','registrationNo','message'];
   const data={};fields.forEach(k=>{data[k]=document.getElementById('shop-'+k)?.value||'';});
   confirmAction('店舗設定を保存しますか？', '保存する', async()=>{
     await sdb.upsert('settings',{key:'shop',value:JSON.stringify(data)});
