@@ -712,11 +712,21 @@ async function doPrint(){
     ...(method==='現金'&&change>=0?[`${padStr('お釣り',12)}${fmt(change)}`]:[]),
     '--------------------------------',`　${STATE.shop.message||''}`,''
   ];
-  const text = lines.join('\n');
   const el = document.getElementById('print-status');
+  const escXml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const body = lines.map(l=>`<text lang="ja">${escXml(l)}&#10;</text>`).join('') + '<cut type="feed"/>';
+  const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body}</epos-print></s:Body></s:Envelope>`;
   try{
-    await navigator.clipboard.writeText(text);
-    if(el) el.innerHTML='<div style="color:#5b8ef5;font-size:12px;padding:8px 12px;background:rgba(91,142,245,.1);border-radius:8px;">📋 クリップボードにコピーしました。Epson TM Printアプリに貼り付けて印刷してください。</div>';
+    const res = await fetch('/printer/', {
+      method: 'POST',
+      headers: {'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': '""'},
+      body: xml,
+    });
+    if(res.ok){
+      if(el) el.innerHTML='<div style="color:#4caf80;font-size:12px;padding:8px 12px;background:rgba(76,175,128,.1);border-radius:8px;">✅ 印刷しました</div>';
+    } else {
+      if(el) el.innerHTML=`<div style="color:#e05252;font-size:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ 印刷失敗: HTTP ${res.status}</div>`;
+    }
   }catch(e){
     if(el) el.innerHTML=`<div style="color:#e05252;font-size:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ ${e.message}</div>`;
   }
