@@ -115,7 +115,16 @@ const calcSub   = o => o.reduce((s,i)=>s+i.price*i.qty,0);
 const calcTax   = s => Math.floor(s*0.1);
 const calcTotal = s => s+calcTax(s);
 const fmt       = n => '\uFFE5'+Number(n).toLocaleString();
-const todayStr  = () => new Date().toLocaleDateString('sv-SE');
+const todayStr  = () => businessDateStr();
+// 営業日基準の日付を返す（AM7:00を境に日付が切り替わる。例: 深夜3時の売上は前日扱い）
+function businessDateStr(d){
+  const dt = d ? new Date(d) : new Date();
+  const shifted = new Date(dt.getTime() - 7*60*60*1000);
+  const y = shifted.getFullYear();
+  const m = String(shifted.getMonth()+1).padStart(2,'0');
+  const day = String(shifted.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
 const nowStr    = () => new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 function elapsed(t){if(!t)return'';const m=Math.floor((Date.now()-new Date(t))/60000);return m<60?m+'分':Math.floor(m/60)+'時間'+m%60+'分';}
 function padStr(str,w){let n=0;for(const c of str)n+=c.charCodeAt(0)>0x7f?2:1;return str+' '.repeat(Math.max(0,w-n));}
@@ -829,7 +838,7 @@ function viewSales(){
   const sales = STATE.sales;
   const dailyMap={},monthlyMap={},hourlyMap={},itemMap={};
   for(const s of sales){
-    const dk=(s.created_at||'').slice(0,10);
+    const dk=businessDateStr(s.created_at||undefined);
     const mk=dk.slice(0,7),h=new Date(s.created_at||Date.now()).getHours();
     if(!dailyMap[dk])dailyMap[dk]={total:0,count:0,cash:0,card:0,qr:0};
     if(!monthlyMap[mk])monthlyMap[mk]={total:0,count:0};
@@ -931,7 +940,7 @@ function viewCash(){
     cs.openCounts=JSON.parse(typeof prevLog.close_counts==='string'?prevLog.close_counts:'{}');
     cs._inheritDone=true;
   }
-  const cashSalesToday=STATE.sales.filter(s=>(s.created_at||'').startsWith(today)&&s.method==='現金').reduce((a,s)=>a+s.total,0);
+  const cashSalesToday=STATE.sales.filter(s=>businessDateStr(s.created_at||undefined)===today&&s.method==='現金').reduce((a,s)=>a+s.total,0);
   const isOpen=todayLog&&!todayLog.closed_at;
   const isClosed=todayLog&&todayLog.closed_at;
   const transferNet=cs.transfers.reduce((s,t)=>t.type==='in'?s+t.amount:s-t.amount,0);
@@ -1130,7 +1139,7 @@ async function doCloseRegister(){
   const todayLog=STATE.cashLogs.find(l=>l.date===today);
   if(!todayLog)return;
   const closeAmt=denomTotal(cs.closeCounts);
-  const cashSalesToday=STATE.sales.filter(s=>(s.created_at||'').startsWith(today)&&s.method==='現金').reduce((a,s)=>a+s.total,0);
+  const cashSalesToday=STATE.sales.filter(s=>businessDateStr(s.created_at||undefined)===today&&s.method==='現金').reduce((a,s)=>a+s.total,0);
   const transferNet=cs.transfers.reduce((s,t)=>t.type==='in'?s+t.amount:s-t.amount,0);
   const expected=(todayLog.open_amount||0)+cashSalesToday+transferNet;
   const diff=closeAmt-expected;
