@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>経費帳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --paper:#F3EEE0;
+    --paper-dark:#E8E1CC;
+    --ink:#1C2333;
+    --ink-soft:#5B5546;
+    --stamp:#A82C2C;
+    --stamp-dark:#7E1F1F;
+    --sage:#4A6B5A;
+    --line:#D8D0B8;
+    --white:#FBF9F3;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at top, #FAF7EC 0%, var(--paper) 60%);
+    color:var(--ink);
+    font-family:'Noto Sans JP',sans-serif;
+    min-height:100vh;
+    padding-bottom:60px;
+  }
+  .roll{
+    background:var(--ink);
+    color:var(--paper);
+    padding:28px 20px 22px;
+    text-align:center;
+    position:relative;
+  }
+  .roll::after{
+    content:"";
+    position:absolute;
+    left:0;right:0;bottom:-10px;
+    height:20px;
+    background:var(--ink);
+    clip-path:polygon(0 0,4% 100%,8% 0,12% 100%,16% 0,20% 100%,24% 0,28% 100%,32% 0,36% 100%,40% 0,44% 100%,48% 0,52% 100%,56% 0,60% 100%,64% 0,68% 100%,72% 0,76% 100%,80% 0,84% 100%,88% 0,92% 100%,96% 0,100% 100%);
+  }
+  .roll h1{
+    font-family:'Shippori Mincho',serif;
+    font-size:26px;
+    letter-spacing:0.15em;
+    margin:0 0 4px;
+    font-weight:700;
+  }
+  .roll p{
+    margin:0;
+    font-size:11px;
+    letter-spacing:0.1em;
+    opacity:0.6;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .tabs{
+    display:flex;
+    justify-content:center;
+    gap:0;
+    margin:30px auto 20px;
+    max-width:420px;
+    padding:0 16px;
+  }
+  .tab{
+    flex:1;
+    text-align:center;
+    padding:10px 0;
+    font-size:14px;
+    font-weight:700;
+    letter-spacing:0.1em;
+    color:var(--ink-soft);
+    border-bottom:2px solid var(--line);
+    cursor:pointer;
+    background:none;
+    font-family:'Noto Sans JP',sans-serif;
+  }
+  .tab.active{
+    color:var(--stamp);
+    border-bottom:2px solid var(--stamp);
+  }
+  .wrap{max-width:460px;margin:0 auto;padding:0 16px;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .slot{
+    border:2px dashed var(--line);
+    border-radius:6px;
+    background:var(--white);
+    text-align:center;
+    padding:34px 16px;
+    cursor:pointer;
+    transition:border-color .2s;
+  }
+  .slot:hover{border-color:var(--stamp);}
+  .slot svg{width:34px;height:34px;stroke:var(--ink-soft);margin-bottom:10px;}
+  .slot p{margin:0;font-size:13px;color:var(--ink-soft);letter-spacing:.05em;}
+  #fileInput{display:none;}
+
+  .preview-card{
+    background:var(--white);
+    border-radius:2px;
+    padding:16px;
+    margin-top:16px;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  .preview-card img{width:100%;border-radius:2px;display:block;max-height:220px;object-fit:cover;}
+
+  .btn{
+    display:block;
+    width:100%;
+    padding:13px;
+    border:none;
+    border-radius:2px;
+    font-family:'Noto Sans JP',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    letter-spacing:.08em;
+    cursor:pointer;
+    margin-top:12px;
+  }
+  .btn-primary{background:var(--ink);color:var(--paper);}
+  .btn-primary:disabled{opacity:.4;cursor:default;}
+  .btn-stamp{background:var(--stamp);color:var(--white);}
+  .btn-ghost{background:none;color:var(--ink-soft);border:1px solid var(--line);}
+
+  .field{margin-top:14px;}
+  .field label{
+    display:block;font-size:11px;color:var(--ink-soft);
+    letter-spacing:.1em;margin-bottom:4px;font-weight:700;
+  }
+  .field input,.field select{
+    width:100%;padding:10px;border:1px solid var(--line);
+    border-radius:2px;font-size:14px;background:var(--white);
+    font-family:'JetBrains Mono',monospace;color:var(--ink);
+  }
+  .field select{font-family:'Noto Sans JP',sans-serif;}
+  .field .learned{
+    font-size:10px;color:var(--sage);margin-top:3px;font-family:'Noto Sans JP',sans-serif;
+  }
+  .row2{display:flex;gap:10px;}
+  .row2 .field{flex:1;}
+  .paytoggle{display:flex;gap:8px;margin-top:6px;}
+  .paytoggle button{
+    flex:1;padding:9px;border:1px solid var(--line);background:var(--white);
+    border-radius:2px;font-size:13px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;
+  }
+  .paytoggle button.sel{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
+  .receipt{
+    background:var(--white);
+    margin-top:14px;
+    padding:14px 16px 20px;
+    position:relative;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+    clip-path:polygon(0 0,100% 0,100% 96%,97% 100%,94% 96%,91% 100%,88% 96%,85% 100%,82% 96%,79% 100%,76% 96%,73% 100%,70% 96%,67% 100%,64% 96%,61% 100%,58% 96%,55% 100%,52% 96%,49% 100%,46% 96%,43% 100%,40% 96%,37% 100%,34% 96%,31% 100%,28% 96%,25% 100%,22% 96%,19% 100%,16% 96%,13% 100%,10% 96%,7% 100%,4% 96%,0 100%);
+  }
+  .receipt-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  .receipt-date{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-soft);}
+  .receipt-vendor{font-weight:700;font-size:15px;margin:2px 0 6px;}
+  .receipt-cat{
+    display:inline-block;font-size:11px;background:var(--paper-dark);
+    padding:2px 8px;border-radius:10px;color:var(--ink-soft);letter-spacing:.05em;
+  }
+  .receipt-amount{
+    font-family:'JetBrains Mono',monospace;font-weight:700;font-size:20px;
+    text-align:right;white-space:nowrap;
+  }
+  .stamp-mark{
+    position:absolute;top:10px;right:14px;
+    width:38px;height:38px;border:2px solid var(--stamp);
+    border-radius:50%;color:var(--stamp);
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:700;transform:rotate(-12deg);
+    opacity:.85;letter-spacing:.02em;
+  }
+  .receipt-pay{font-size:10px;color:var(--ink-soft);margin-top:2px;}
+
+  .empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:40px 10px;line-height:1.8;}
+
+  .month-select{
+    display:flex;align-items:center;justify-content:center;gap:14px;margin:6px 0 18px;
+  }
+  .month-select button{background:none;border:none;font-size:18px;color:var(--ink-soft);cursor:pointer;}
+  .month-select span{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;letter-spacing:.05em;}
+
+  .sum-block{background:var(--white);padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .sum-title{font-size:11px;color:var(--ink-soft);letter-spacing:.1em;margin-bottom:8px;font-weight:700;}
+  .sum-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .sum-row:last-child{border-bottom:none;}
+  .sum-row span:last-child{font-family:'JetBrains Mono',monospace;font-weight:600;}
+  .sum-total{display:flex;justify-content:space-between;padding-top:10px;margin-top:4px;border-top:2px solid var(--ink);font-weight:700;font-size:15px;}
+  .sum-total span:last-child{font-family:'JetBrains Mono',monospace;}
+
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:var(--paper);padding:10px 20px;
+    border-radius:20px;font-size:13px;box-shadow:0 3px 10px rgba(0,0,0,.2);
+    opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;
+  }
+  .toast.show{opacity:1;}
+  .loading{text-align:center;padding:16px;font-size:12px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;}
+  .err{color:var(--stamp);font-size:12px;margin-top:8px;}
+</style>
+</head>
+<body>
+
+<div class="roll">
+  <h1>経 費 帳</h1>
+  <p>RECEIPT LEDGER · MEDICOM</p>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="input">入力</button>
+  <button class="tab" data-tab="list">一覧</button>
+  <button class="tab" data-tab="import">取込</button>
+  <button class="tab" data-tab="summary">集計</button>
+</div>
+
+<div class="wrap">
+
+  <!-- 入力パネル -->
+  <div class="panel active" id="panel-input">
+    <div class="slot" id="slot" onclick="document.getElementById('fileInput').click()">
+      <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3.75 3.75M12 9.75l3.75 3.75M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
+      <p>レシート写真をアップロード</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" capture="environment">
+
+    <div id="previewArea"></div>
+    <div id="formArea"></div>
+  </div>
+
+  <!-- 一覧パネル -->
+  <div class="panel" id="panel-list">
+    <div id="listArea"><div class="empty">まだ登録された経費がありません</div></div>
+  </div>
+
+  <!-- 取込パネル -->
+  <div class="panel" id="panel-import">
+    <div class="field">
+      <label>カード種別</label>
+      <div class="paytoggle" id="cardTypeToggle">
+        <button type="button" class="sel" data-card="corp" onclick="selectCardType(this)">コーポレートカード</button>
+        <button type="button" data-card="personal" onclick="selectCardType(this)">個人カード(立替)</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>対象年 (日付に年が無い形式の場合に使用)</label>
+      <input type="number" id="importYear" value="">
+    </div>
+    <div class="field">
+      <label>明細CSVを貼り付け、またはファイルを選択(CSV/PDF対応)</label>
+      <textarea id="csvText" rows="5" style="width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:2px;background:var(--white);"></textarea>
+      <input type="file" id="csvFile" accept=".csv,.pdf,text/csv,application/pdf" style="margin-top:8px;font-size:12px;">
+      <div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">PDFはAIが自動抽出します(複数回に分けて取得するため長い明細にも対応)</div>
+    </div>
+    <button class="btn btn-primary" onclick="parseImport()">明細を読み込む</button>
+    <div id="importMapArea"></div>
+    <div id="importPreviewArea"></div>
+  </div>
+
+  <!-- 集計パネル -->
+  <div class="panel" id="panel-summary">
+    <div class="month-select">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <span id="monthLabel"></span>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+    <div id="summaryArea"></div>
+    <button class="btn btn-ghost" onclick="exportCSV()">CSVをエクスポート(Excel用)</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATEGORIES = ["仕入高","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","雑費"];
+
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let expenses = [];
+let vendorMap = {};
+let currentImageBase64 = null;
+let currentImageType = 'image/jpeg';
+let currentExtract = null;
+let viewMonth = new Date();
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+// ---- data (Supabase) ----
+async function loadData(){
+  try{
+    const [expRes, mapRes] = await Promise.all([
+      sb.from('expenses').select('*').order('date', {ascending:false}).order('created_at', {ascending:false}),
+      sb.from('vendor_category_map').select('vendor,category')
+    ]);
+    if(expRes.error) throw expRes.error;
+    if(mapRes.error) throw mapRes.error;
+    expenses = (expRes.data||[]).map(e=>({
+      id: e.id, date: e.date, amount: Number(e.amount), vendor: e.vendor,
+      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt
+    }));
+    vendorMap = {};
+    (mapRes.data||[]).forEach(v=>{ vendorMap[v.vendor] = v.category; });
+  }catch(e){
+    console.error('loadData error', e);
+    toast('データの読み込みに失敗しました: ' + (e.message||String(e)));
+  }
+  renderList();
+  renderSummary();
+}
+
+async function upsertVendorMap(vendor, category){
+  if(!vendor) return;
+  vendorMap[vendor] = category;
+  try{
+    await sb.from('vendor_category_map').upsert({vendor, category, updated_at: new Date().toISOString()}, {onConflict:'vendor'});
+  }catch(e){
+    console.error('vendor map upsert failed', e);
+  }
+}
+
+// ---- tabs ----
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
+    if(tab.dataset.tab==='list') renderList();
+    if(tab.dataset.tab==='summary') renderSummary();
+  });
+});
+
+// ---- upload & AI extraction ----
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > h){ if(w > maxDim){ h = Math.round(h*maxDim/w); w = maxDim; } }
+        else { if(h > maxDim){ w = Math.round(w*maxDim/h); h = maxDim; } }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality).split(',')[1]);
+      };
+      img.onerror = ()=>reject(new Error('画像のデコードに失敗しました(HEIC等は非対応の場合があります)'));
+      img.src = reader.result;
+    };
+    reader.onerror = ()=>reject(new Error('ファイルの読み込みに失敗しました'));
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  document.getElementById('previewArea').innerHTML = '<div class="loading">画像を読み込み中...</div>';
+  try{
+    currentImageType = 'image/jpeg';
+    currentImageBase64 = await compressImage(file, 1400, 0.75);
+    document.getElementById('previewArea').innerHTML = `
+      <div class="preview-card">
+        <img src="data:image/jpeg;base64,${currentImageBase64}">
+        <button class="btn btn-primary" id="analyzeBtn">AIで解析する</button>
+        <div id="analyzeErr"></div>
+      </div>`;
+    document.getElementById('formArea').innerHTML = '';
+    document.getElementById('analyzeBtn').addEventListener('click', runAnalyze);
+  }catch(err){
+    document.getElementById('previewArea').innerHTML = `<div class="err">${escapeHtml(err.message||String(err))}</div>`;
+  }
+});
+
+async function runAnalyze(){
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  btn.textContent = '解析中...';
+  document.getElementById('analyzeErr').innerHTML = '';
+  try{
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        model:"claude-sonnet-4-6",
+        max_tokens:1000,
+        messages:[{
+          role:"user",
+          content:[
+            {type:"image", source:{type:"base64", media_type: currentImageType, data: currentImageBase64}},
+            {type:"text", text:
+`このレシート/領収書画像から以下を抽出してください。
+出力は必ずJSONのみ。前置き・説明・マークダウンのバッククォートは一切不要。
+
+{
+ "date": "YYYY-MM-DD形式の日付。読み取れなければ今日の日付を推定",
+ "amount": 数値のみ(税込合計金額、カンマなし),
+ "vendor": "店名/支払先",
+ "suggested_category": "次の勘定科目のうち最も適切なもの一つ: ${CATEGORIES.join('、')}",
+ "memo": "10文字程度の簡潔な摘要(品目など)"
+}`}
+          ]
+        }]
+      })
+    });
+    if(!response.ok){
+      const errBody = await response.text();
+      throw new Error(`APIエラー(${response.status}): ${errBody.slice(0,200)}`);
+    }
+    const data = await response.json();
+    if(data.error){
+      throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    const text = data.content.map(b=>b.text||"").join("");
+    const clean = text.replace(/```json|```/g,'').trim();
+    let parsed;
+    try{
+      parsed = JSON.parse(clean);
+    }catch(parseErr){
+      throw new Error('AIの応答をJSONとして読み取れませんでした: ' + clean.slice(0,150));
+    }
+    currentExtract = parsed;
+    renderForm(parsed);
+  }catch(err){
+    console.error('analyze error', err);
+    document.getElementById('analyzeErr').innerHTML =
+      `<div class="err">解析に失敗しました: ${escapeHtml(err.message || String(err))}</div>`;
+    renderForm({date:new Date().toISOString().slice(0,10), amount:'', vendor:'', suggested_category:CATEGORIES[0], memo:''});
+  }
+  btn.disabled = false;
+  btn.textContent = 'AIで解析する';
+}
+
+function renderForm(ex){
+  const learnedCat = vendorMap[ex.vendor];
+  const finalCat = learnedCat || ex.suggested_category || CATEGORIES[0];
+  document.getElementById('formArea').innerHTML = `
+    <div class="preview-card">
+      <div class="row2">
+        <div class="field"><label>日付</label><input type="date" id="f-date" value="${ex.date||''}"></div>
+        <div class="field"><label>金額</label><input type="number" id="f-amount" value="${ex.amount||''}"></div>
+      </div>
+      <div class="field"><label>支出先</label><input type="text" id="f-vendor" value="${(ex.vendor||'').replace(/"/g,'&quot;')}"></div>
+      <div class="field">
+        <label>勘定科目</label>
+        <select id="f-category">
+          ${CATEGORIES.map(c=>`<option value="${c}" ${c===finalCat?'selected':''}>${c}</option>`).join('')}
+        </select>
+        ${learnedCat ? `<div class="learned">✓ 「${ex.vendor}」は過去の登録から自動選択</div>` : ''}
+      </div>
+      <div class="field"><label>摘要</label><input type="text" id="f-memo" value="${(ex.memo||'').replace(/"/g,'&quot;')}"></div>
+      <div class="field">
+        <label>支払方法</label>
+        <div class="paytoggle">
+          <button type="button" class="sel" data-pay="現金" onclick="selectPay(this)">現金</button>
+          <button type="button" data-pay="クレジット" onclick="selectPay(this)">クレジット</button>
+        </div>
+      </div>
+      <button class="btn btn-stamp" onclick="confirmExpense()">確 認 して登録</button>
+    </div>`;
+}
+function selectPay(btn){
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+
+function confirmExpense(){
+  const pay = document.querySelector('.paytoggle button.sel').dataset.pay;
+  const vendor = document.getElementById('f-vendor').value.trim();
+  const category = document.getElementById('f-category').value;
+  const date = document.getElementById('f-date').value;
+  const amount = Number(document.getElementById('f-amount').value)||0;
+  const memo = document.getElementById('f-memo').value.trim();
+  if(!date || !amount || !vendor){
+    toast('日付・金額・支出先を確認してください');
+    return;
+  }
+  saveExpenseToSupabase({date, amount, vendor, category, memo, payment: pay, hasReceipt: !!currentImageBase64});
+}
+
+function base64ToBlob(base64, mime){
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for(let i=0;i<bytes.length;i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], {type: mime});
+}
+
+async function saveExpenseToSupabase(entry){
+  const imageToStore = currentImageBase64;
+  try{
+    const { data, error } = await sb.from('expenses').insert([{
+      date: entry.date, amount: entry.amount, vendor: entry.vendor,
+      category: entry.category, memo: entry.memo, payment: entry.payment,
+      has_receipt: entry.hasReceipt
+    }]).select();
+    if(error) throw error;
+    const saved = data[0];
+    expenses.unshift({
+      id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
+      category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt
+    });
+    if(entry.vendor) upsertVendorMap(entry.vendor, entry.category);
+
+    if(entry.hasReceipt && imageToStore){
+      try{
+        const blob = base64ToBlob(imageToStore, 'image/jpeg');
+        const { error: upErr } = await sb.storage.from('receipts').upload(`${saved.id}.jpg`, blob, {contentType:'image/jpeg', upsert:true});
+        if(upErr) throw upErr;
+      }catch(e){
+        console.error('receipt upload failed', e);
+        toast('登録はできましたが、レシート画像の保存に失敗しました');
+      }
+    }
+    toast('登録しました');
+  }catch(e){
+    console.error('expense insert failed', e);
+    toast('登録に失敗しました: ' + (e.message||String(e)));
+  }
+  currentImageBase64 = null;
+  document.getElementById('previewArea').innerHTML = '';
+  document.getElementById('formArea').innerHTML = '';
+  document.getElementById('fileInput').value = '';
+  renderList();
+  renderSummary();
+}
+
+// ---- list ----
+function renderList(){
+  const area = document.getElementById('listArea');
+  if(expenses.length===0){
+    area.innerHTML = '<div class="empty">まだ登録された経費がありません</div>';
+    return;
+  }
+  area.innerHTML = expenses.map(e=>`
+    <div class="receipt">
+      <div class="stamp-mark">確認済</div>
+      <div class="receipt-top">
+        <div>
+          <div class="receipt-date">${e.date}</div>
+          <div class="receipt-vendor">${escapeHtml(e.vendor)}</div>
+          <span class="receipt-cat">${e.category}</span>
+          <div class="receipt-pay">${e.payment}${e.memo ? ' ・ '+escapeHtml(e.memo) : ''}</div>
+          ${e.hasReceipt ? `<div style="margin-top:6px;"><button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="viewReceipt('${e.id}')">レシート画像を見る</button></div>` : ''}
+        </div>
+        <div class="receipt-amount">¥${e.amount.toLocaleString()}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function viewReceipt(id){
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = '<div class="loading" style="color:var(--paper);">読み込み中...</div>';
+  modal.addEventListener('click', ()=>modal.remove());
+  document.body.appendChild(modal);
+  try{
+    const { data } = sb.storage.from('receipts').getPublicUrl(`${id}.jpg`);
+    if(data && data.publicUrl){
+      modal.innerHTML = `<img src="${data.publicUrl}" style="max-width:100%;max-height:90vh;border-radius:4px;" onerror="this.parentElement.innerHTML='<div style=&quot;color:var(--paper)&quot;>画像が見つかりませんでした</div>'">`;
+    } else {
+      modal.innerHTML = '<div style="color:var(--paper);">画像が見つかりませんでした</div>';
+    }
+  }catch(e){
+    modal.innerHTML = '<div style="color:var(--paper);">画像の読み込みに失敗しました</div>';
+  }
+}
+
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- summary ----
+function shiftMonth(n){
+  viewMonth.setMonth(viewMonth.getMonth()+n);
+  renderSummary();
+}
+function monthKey(d){ return d.slice(0,7); }
+function renderSummary(){
+  const ym = viewMonth.toISOString().slice(0,7);
+  document.getElementById('monthLabel').textContent = ym.replace('-','年')+'月';
+  const monthExp = expenses.filter(e=>monthKey(e.date)===ym);
+  const area = document.getElementById('summaryArea');
+  if(monthExp.length===0){
+    area.innerHTML = '<div class="empty">この月の経費データがありません</div>';
+    return;
+  }
+  const byCat = {};
+  let cashTotal=0, creditTotal=0;
+  monthExp.forEach(e=>{
+    byCat[e.category] = (byCat[e.category]||0) + e.amount;
+    if(e.payment==='現金') cashTotal+=e.amount; else creditTotal+=e.amount;
+  });
+  const total = cashTotal+creditTotal;
+  let html = `<div class="sum-block"><div class="sum-title">勘定科目別</div>`;
+  Object.entries(byCat).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt])=>{
+    html += `<div class="sum-row"><span>${cat}</span><span>¥${amt.toLocaleString()}</span></div>`;
+  });
+  html += `<div class="sum-total"><span>合計</span><span>¥${total.toLocaleString()}</span></div></div>`;
+  html += `<div class="sum-block"><div class="sum-title">支払方法別</div>
+    <div class="sum-row"><span>現金</span><span>¥${cashTotal.toLocaleString()}</span></div>
+    <div class="sum-row"><span>クレジット</span><span>¥${creditTotal.toLocaleString()}</span></div>
+  </div>`;
+  area.innerHTML = html;
+}
+
+function exportCSV(){
+  const ym = viewMonth.toISOString().slice(0,7);
+  const monthExp = expenses.filter(e=>monthKey(e.date)===ym);
+  if(monthExp.length===0){ toast('この月のデータがありません'); return; }
+  let csv = '日付,勘定科目,金額,支出先,摘要,支払方法\n';
+  monthExp.forEach(e=>{
+    csv += `${e.date},${e.category},${e.amount},"${(e.vendor||'').replace(/"/g,'""')}","${(e.memo||'').replace(/"/g,'""')}",${e.payment}\n`;
+  });
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `経費_${ym}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+loadData();
+
+// ---- credit card import ----
+let importCardType = 'corp';
+let importParsedRows = [];
+let currentImportRows = [];
+document.getElementById('importYear').value = new Date().getFullYear();
+
+function selectCardType(btn){
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel');
+  importCardType = btn.dataset.card;
+}
+
+const csvFileInput = document.getElementById('csvFile');
+if(csvFileInput){
+  csvFileInput.addEventListener('change', (e)=>{
+    const f = e.target.files[0];
+    if(!f) return;
+    const isPdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+    if(isPdf){
+      const r = new FileReader();
+      r.onload = ()=>{
+        const base64 = r.result.split(',')[1];
+        analyzePdfStatement(base64);
+      };
+      r.readAsDataURL(f);
+    } else {
+      document.getElementById('csvText').value = '読み込み中...';
+      readFileSmart(f).then(text=>{
+        document.getElementById('csvText').value = text;
+        parseImport();
+      }).catch(()=>{
+        document.getElementById('csvText').value = '';
+        toast('ファイルの読み込みに失敗しました');
+      });
+    }
+  });
+}
+
+async function readFileSmart(file){
+  const buf = await file.arrayBuffer();
+  // UTF-8として厳密デコードを試み、失敗したらShift-JISとして読み直す(日本のカード明細CSVによくある)
+  try{
+    return new TextDecoder('utf-8', {fatal:true}).decode(buf);
+  }catch(e){
+    try{
+      return new TextDecoder('shift-jis').decode(buf);
+    }catch(e2){
+      return new TextDecoder('utf-8').decode(buf);
+    }
+  }
+}
+
+async function analyzePdfStatement(base64){
+  document.getElementById('importMapArea').innerHTML = '<div class="loading">PDFを解析中...(0件取得)</div>';
+  document.getElementById('importPreviewArea').innerHTML = '';
+  const yearHint = document.getElementById('importYear').value;
+  const initialPrompt =
+`このクレジットカード明細PDFから取引明細を抽出してください。
+出力は必ずJSON配列のみ。前置き・説明・コードブロックは一切不要。
+
+[{"date":"YYYY-MM-DD形式(年の記載が無ければ${yearHint}年として補完)","vendor":"利用先名","amount":数値のみ(円、カンマなし)}, ...]
+
+年会費・手数料などの明細行も含めてよい。明細の先頭から順に、出力できる範囲まで出力してください。`;
+
+  let messages = [{
+    role:"user",
+    content:[
+      {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+      {type:"text", text: initialPrompt}
+    ]
+  }];
+  let allRows = [];
+  const seen = new Set();
+  const maxTurns = 8;
+
+  try{
+    for(let turn=0; turn<maxTurns; turn++){
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1000, messages })
+      });
+      if(!response.ok){
+        const errBody = await response.text();
+        throw new Error(`APIエラー(${response.status}): ${errBody.slice(0,200)}`);
+      }
+      const data = await response.json();
+      if(data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      const text = data.content.map(b=>b.text||"").join("");
+      const clean = text.replace(/```json|```/g,'').trim();
+      let arr;
+      try{
+        arr = JSON.parse(clean);
+      }catch(parseErr){
+        // 出力が途中で切れた場合は、完全に閉じている要素だけ拾う
+        const matches = clean.match(/\{[^{}]*\}/g);
+        arr = matches ? matches.map(s=>{ try{ return JSON.parse(s); }catch(_){ return null; } }).filter(Boolean) : [];
+      }
+      if(!Array.isArray(arr) || arr.length===0) break;
+
+      let newCount = 0;
+      arr.forEach(t=>{
+        const key = `${t.date}|${t.vendor}|${t.amount}`;
+        if(!seen.has(key)){ seen.add(key); allRows.push(t); newCount++; }
+      });
+      document.getElementById('importMapArea').innerHTML = `<div class="loading">PDFを解析中...(${allRows.length}件取得)</div>`;
+      if(newCount===0) break;
+
+      messages.push({ role:"assistant", content: data.content });
+      messages.push({ role:"user", content:[{type:"text", text:
+        `続きの取引明細を出力してください。直前までに出力済みの取引(合計${allRows.length}件)とは重複させないでください。もう明細が残っていない場合は空配列 [] のみを返してください。`}] });
+    }
+
+    currentImportRows = allRows.map(t=>({
+      date: t.date || '',
+      vendor: (t.vendor||'').trim(),
+      amount: Number(t.amount)||0,
+      category: vendorMap[(t.vendor||'').trim()] || '雑費',
+      checked: importCardType==='corp'
+    })).filter(r=>r.amount && r.vendor);
+    document.getElementById('importMapArea').innerHTML =
+      `<div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">PDFから${currentImportRows.length}件の取引を読み取りました。金額・日付をご確認ください。</div>`;
+    renderImportPreview();
+  }catch(err){
+    console.error('pdf analyze error', err);
+    document.getElementById('importMapArea').innerHTML =
+      `<div class="err">PDF解析に失敗しました: ${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+function parseCSV(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+  return lines.map(line=>{
+    const result=[]; let cur='', inQuotes=false;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(inQuotes){
+        if(ch==='"'){ if(line[i+1]==='"'){cur+='"'; i++;} else inQuotes=false; }
+        else cur+=ch;
+      } else {
+        if(ch==='"') inQuotes=true;
+        else if(ch===','){ result.push(cur); cur=''; }
+        else cur+=ch;
+      }
+    }
+    result.push(cur);
+    return result.map(c=>c.trim());
+  });
+}
+
+function findHeaderRowIndex(rows){
+  const dateKw = ['利用日','ご利用日','日付','取引日'];
+  const amtKw = ['金額','ご利用金額','利用金額'];
+  for(let i=0;i<Math.min(rows.length,30);i++){
+    const row = rows[i];
+    const hasDate = row.some(c=>dateKw.some(k=>c.includes(k)));
+    const hasAmt = row.some(c=>amtKw.some(k=>c.includes(k)));
+    if(hasDate && hasAmt) return i;
+  }
+  return 0;
+}
+
+function parseImport(){
+  const text = document.getElementById('csvText').value.trim();
+  if(!text){ toast('CSVを貼り付けるかファイルを選択してください'); return; }
+  const allRows = parseCSV(text);
+  if(allRows.length<2){ toast('データ行が見つかりません'); return; }
+  const headerIdx = findHeaderRowIndex(allRows);
+  importParsedRows = allRows.slice(headerIdx);
+  if(importParsedRows.length<2){ toast('明細のヘッダー行が見つかりませんでした。列を手動で確認してください'); importParsedRows = allRows; }
+  if(headerIdx>0){ toast(`前置き情報 ${headerIdx}行をスキップしました`); }
+  renderColumnMap();
+}
+
+function renderColumnMap(){
+  const header = importParsedRows[0];
+  const opts = header.map((h,i)=>`<option value="${i}">${escapeHtml(h||('列'+(i+1)))}</option>`).join('');
+  // 日付/金額/利用先っぽい列を推測してデフォルト選択
+  const guess = (keywords, fallbackIdx)=>{
+    const idx = header.findIndex(h=>keywords.some(k=>(h||'').includes(k)));
+    return idx>=0 ? idx : Math.min(fallbackIdx, header.length-1);
+  };
+  const dGuess = guess(['日付','ご利用日','利用日'], 0);
+  const aGuess = guess(['金額','ご利用金額'], 1);
+  const vGuess = guess(['利用先','店名','加盟店'], 2);
+  document.getElementById('importMapArea').innerHTML = `
+    <div class="preview-card">
+      <div class="row2">
+        <div class="field"><label>日付の列</label><select id="map-date">${opts}</select></div>
+        <div class="field"><label>金額の列</label><select id="map-amount">${opts}</select></div>
+      </div>
+      <div class="field"><label>利用先の列</label><select id="map-vendor">${opts}</select></div>
+      <button class="btn btn-stamp" onclick="buildImportPreview()">プレビュー作成</button>
+    </div>`;
+  document.getElementById('map-date').value = dGuess;
+  document.getElementById('map-amount').value = aGuess;
+  document.getElementById('map-vendor').value = vGuess;
+}
+
+function normalizeDate(raw){
+  raw = (raw||'').trim();
+  let m = raw.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})$/);
+  if(m){
+    const y = document.getElementById('importYear').value || new Date().getFullYear();
+    return `${y}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  }
+  return '';
+}
+
+function buildImportPreview(){
+  const header = importParsedRows[0];
+  const di = Number(document.getElementById('map-date').value);
+  const ai = Number(document.getElementById('map-amount').value);
+  const vi = Number(document.getElementById('map-vendor').value);
+  const excludeKw = ['合計','小計','累計','残高','繰越','ポイント','カード名称','利用者'];
+  const rawCount = importParsedRows.length - 1;
+  currentImportRows = importParsedRows.slice(1)
+    .filter(r=>r.length===header.length)
+    .map(r=>{
+      const vendor = (r[vi]||'').trim();
+      const amount = Number((r[ai]||'').replace(/[^\d.\-]/g,''))||0;
+      const date = normalizeDate(r[di]);
+      return { date, vendor, amount, category: vendorMap[vendor] || '雑費', checked: importCardType==='corp' };
+    })
+    .filter(r=>r.amount!==0 && r.vendor)
+    .filter(r=>!excludeKw.some(k=>r.vendor.includes(k)))
+    .filter(r=>Math.abs(r.amount) < 5000000);
+  const skipped = rawCount - currentImportRows.length;
+  if(skipped>0){
+    document.getElementById('importMapArea').insertAdjacentHTML('beforeend',
+      `<div style="font-size:11px;color:var(--ink-soft);margin-top:6px;">${skipped}行は集計行・異常値・列数不一致として除外しました</div>`);
+  }
+  renderImportPreview();
+}
+
+function renderImportPreview(){
+  const area = document.getElementById('importPreviewArea');
+  if(currentImportRows.length===0){
+    area.innerHTML = '<div class="empty">読み込める明細が見つかりませんでした。列の指定を確認してください</div>';
+    return;
+  }
+  const isPersonal = importCardType==='personal';
+  area.innerHTML = `
+    <div class="preview-card">
+      <div class="sum-title">${isPersonal ? '経費にする項目だけチェック(選択分は現金枠として計上)' : 'コーポレートカード明細(全件クレジット枠で計上)'}</div>
+      ${currentImportRows.map((r,i)=>`
+        <div class="sum-row" style="align-items:center;">
+          <span style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" ${r.checked?'checked':''} onchange="toggleImportRow(${i}, this.checked)">
+            <span>${r.date || '<span style="color:var(--stamp);font-size:11px;">日付要確認</span>'} ${escapeHtml(r.vendor)}</span>
+          </span>
+          <span>¥${r.amount.toLocaleString()}</span>
+        </div>
+        <div style="padding:2px 0 10px 26px;">
+          <select onchange="updateImportCategory(${i}, this.value)" style="font-size:12px;padding:4px;font-family:'Noto Sans JP',sans-serif;">
+            ${CATEGORIES.map(c=>`<option value="${c}" ${c===r.category?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+      `).join('')}
+      <button class="btn btn-ghost" onclick="suggestCategoriesAI()">AIで科目を一括提案</button>
+      <button class="btn btn-stamp" onclick="commitImport()">選択した項目を登録</button>
+    </div>`;
+}
+
+async function suggestCategoriesAI(){
+  const targets = currentImportRows.filter(r=>!vendorMap[r.vendor]);
+  if(targets.length===0){ toast('すべて学習済みの店名です'); return; }
+  const uniqueVendors = [...new Set(targets.map(r=>r.vendor))];
+  toast('AIが科目を提案中...');
+  try{
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        model:"claude-sonnet-4-6",
+        max_tokens:1000,
+        messages:[{
+          role:"user",
+          content:[{type:"text", text:
+`次の支出先(店名/会社名)それぞれに、最も適切な勘定科目を1つ選んでください。
+勘定科目の選択肢: ${CATEGORIES.join('、')}
+出力は必ずJSONオブジェクトのみ。前置き・説明・コードブロック不要。
+形式: {"店名1":"科目名", "店名2":"科目名", ...}
+
+対象の店名一覧:
+${uniqueVendors.join('\n')}`
+          }]
+        }]
+      })
+    });
+    if(!response.ok) throw new Error(`APIエラー(${response.status})`);
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message || 'API error');
+    const text = data.content.map(b=>b.text||"").join("");
+    const clean = text.replace(/```json|```/g,'').trim();
+    const map = JSON.parse(clean);
+    currentImportRows.forEach(r=>{
+      if(!vendorMap[r.vendor] && map[r.vendor] && CATEGORIES.includes(map[r.vendor])){
+        r.category = map[r.vendor];
+      }
+    });
+    renderImportPreview();
+    toast('科目案を反映しました。内容を確認してください');
+  }catch(err){
+    console.error('category suggest error', err);
+    toast('科目の一括提案に失敗しました: ' + (err.message||String(err)));
+  }
+}
+
+function toggleImportRow(i, val){ currentImportRows[i].checked = val; }
+function updateImportCategory(i, val){ currentImportRows[i].category = val; }
+
+async function commitImport(){
+  const isPersonal = importCardType==='personal';
+  const toAdd = currentImportRows.filter(r=>r.checked && r.date && r.amount);
+  if(toAdd.length===0){
+    toast('登録する項目がありません(日付が読み取れているか確認してください)');
+    return;
+  }
+  const rows = toAdd.map(r=>({
+    date: r.date, amount: r.amount, vendor: r.vendor, category: r.category,
+    memo: isPersonal ? '個人カード立替' : 'コーポレートカード明細',
+    payment: isPersonal ? '現金' : 'クレジット',
+    has_receipt: false
+  }));
+  try{
+    const { data, error } = await sb.from('expenses').insert(rows).select();
+    if(error) throw error;
+    data.forEach(saved=>{
+      expenses.unshift({
+        id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
+        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false
+      });
+    });
+    toAdd.forEach(r=>{ if(r.vendor) upsertVendorMap(r.vendor, r.category); });
+    toast(`${toAdd.length}件登録しました`);
+  }catch(e){
+    console.error('bulk insert failed', e);
+    toast('登録に失敗しました: ' + (e.message||String(e)));
+  }
+  currentImportRows = [];
+  document.getElementById('importPreviewArea').innerHTML = '';
+  document.getElementById('importMapArea').innerHTML = '';
+  document.getElementById('csvText').value = '';
+  renderList();
+  renderSummary();
+}
+
+</script>
+</body>
+</html>
