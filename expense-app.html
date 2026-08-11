@@ -286,6 +286,10 @@ const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// CoreServerにアップロード後、実際のURLに書き換えてください
+const PROXY_URL = "https://medicom.co.jp/proxy.php";
+const PROXY_SECRET = "S-djkcI9lY9yqhWupxMrQct4f9xFyrSP";
+
 let expenses = [];
 let vendorMap = {};
 let currentImageBase64 = null;
@@ -394,12 +398,12 @@ async function runAnalyze(){
   btn.textContent = '解析中...';
   document.getElementById('analyzeErr').innerHTML = '';
   try{
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(PROXY_URL, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:{"Content-Type":"application/json", "X-App-Secret": PROXY_SECRET},
       body: JSON.stringify({
-        model:"claude-sonnet-4-6",
-        max_tokens:1000,
+        model:"claude-sonnet-5",
+        max_tokens:1024,
         messages:[{
           role:"user",
           content:[
@@ -715,10 +719,10 @@ async function analyzePdfStatement(base64){
 
   try{
     for(let turn=0; turn<maxTurns; turn++){
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch(PROXY_URL, {
         method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1000, messages })
+        headers:{"Content-Type":"application/json", "X-App-Secret": PROXY_SECRET},
+        body: JSON.stringify({ model:"claude-sonnet-5", max_tokens:4096, messages })
       });
       if(!response.ok){
         const errBody = await response.text();
@@ -910,12 +914,12 @@ async function suggestCategoriesAI(){
   const uniqueVendors = [...new Set(targets.map(r=>r.vendor))];
   toast('AIが科目を提案中...');
   try{
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(PROXY_URL, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:{"Content-Type":"application/json", "X-App-Secret": PROXY_SECRET},
       body: JSON.stringify({
-        model:"claude-sonnet-4-6",
-        max_tokens:1000,
+        model:"claude-sonnet-5",
+        max_tokens:1024,
         messages:[{
           role:"user",
           content:[{type:"text", text:
