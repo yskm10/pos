@@ -851,7 +851,8 @@ function viewSales(){
     hourlyMap[h].total+=s.total;hourlyMap[h].count++;
     const sitems=JSON.parse(s.items_json||'[]');
     for(const i of sitems){
-      if(!itemMap[i.name])itemMap[i.name]={total:0,qty:0};
+      const cat=i.category||'未分類';
+      if(!itemMap[i.name])itemMap[i.name]={total:0,qty:0,category:cat};
       itemMap[i.name].total+=i.price*i.qty;itemMap[i.name].qty+=i.qty;
     }
   }
@@ -906,17 +907,77 @@ function viewSales(){
     const bars=rows.map(([h,v])=>hbar(h,v.total,max,v.count>0?`${v.count}件`:'',h===peak?'#e05252':'#f5a623',50)).join('');
     content=`<div class="card"><div style="font-weight:700;margin-bottom:16px;">時間帯別売上</div>${sales.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
   }else if(tab==='items'){
-    const rows=Object.entries(itemMap).sort((a,b)=>b[1].total-a[1].total);
+    if(!window._salesItemFilter) window._salesItemFilter={period:'all',periodKey:'',category:'all'};
+    const fil = window._salesItemFilter;
+
+    // フィルター条件に応じて商品別集計を作り直す
+    const filteredItemMap={};
+    for(const s of sales){
+      const dk=businessDateStr(s.created_at||undefined);
+      const mk=dk.slice(0,7);
+      if(fil.period==='daily' && fil.periodKey && dk!==fil.periodKey) continue;
+      if(fil.period==='monthly' && fil.periodKey && mk!==fil.periodKey) continue;
+      const sitems=JSON.parse(s.items_json||'[]');
+      for(const i of sitems){
+        const cat=i.category||'未分類';
+        if(fil.category!=='all' && cat!==fil.category) continue;
+        if(!filteredItemMap[i.name])filteredItemMap[i.name]={total:0,qty:0,category:cat};
+        filteredItemMap[i.name].total+=i.price*i.qty;filteredItemMap[i.name].qty+=i.qty;
+      }
+    }
+
+    // フィルターUI用の選択肢
+    const dayOptions=Object.keys(dailyMap).sort((a,b)=>b.localeCompare(a));
+    const monthOptions=Object.keys(monthlyMap).sort((a,b)=>b.localeCompare(a));
+    const categoryOptions=['all',...new Set(Object.values(itemMap).map(v=>v.category))];
+
+    const periodSelect=`
+      <select onchange="window._salesItemFilter.period=this.value;window._salesItemFilter.periodKey='';render()" style="width:auto;padding:6px 10px;font-size:13px;">
+        <option value="all" ${fil.period==='all'?'selected':''}>全期間</option>
+        <option value="daily" ${fil.period==='daily'?'selected':''}>日別で選ぶ</option>
+        <option value="monthly" ${fil.period==='monthly'?'selected':''}>月別で選ぶ</option>
+      </select>`;
+
+    let periodKeySelect='';
+    if(fil.period==='daily'){
+      periodKeySelect=`<select onchange="window._salesItemFilter.periodKey=this.value;render()" style="width:auto;padding:6px 10px;font-size:13px;">
+        <option value="">-- 日付を選択 --</option>
+        ${dayOptions.map(d=>`<option value="${d}" ${fil.periodKey===d?'selected':''}>${d}</option>`).join('')}
+      </select>`;
+    }else if(fil.period==='monthly'){
+      periodKeySelect=`<select onchange="window._salesItemFilter.periodKey=this.value;render()" style="width:auto;padding:6px 10px;font-size:13px;">
+        <option value="">-- 月を選択 --</option>
+        ${monthOptions.map(m=>`<option value="${m}" ${fil.periodKey===m?'selected':''}>${m}</option>`).join('')}
+      </select>`;
+    }
+
+    const categorySelect=`
+      <select onchange="window._salesItemFilter.category=this.value;render()" style="width:auto;padding:6px 10px;font-size:13px;">
+        ${categoryOptions.map(c=>`<option value="${c}" ${fil.category===c?'selected':''}>${c==='all'?'全カテゴリー':c}</option>`).join('')}
+      </select>`;
+
+    const filterBar=`<div class="card" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <span style="color:#9ca3af;font-size:12px;">期間:</span>${periodSelect}${periodKeySelect}
+      <span style="color:#9ca3af;font-size:12px;margin-left:8px;">カテゴリー:</span>${categorySelect}
+    </div>`;
+
+    const needsKey=(fil.period==='daily'||fil.period==='monthly')&&!fil.periodKey;
+    const rows=Object.entries(filteredItemMap).sort((a,b)=>b[1].total-a[1].total);
     const max=Math.max(...rows.map(r=>r[1].total),1);
     const rankColors=['#f5a623','#5b8ef5','#4caf80'];
     const items=rows.map(([name,v],i)=>`<div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-        <div style="display:flex;align-items:center;gap:8px;"><span style="color:${i<3?'#f5a623':'#9ca3af'};font-weight:700;width:20px;">#${i+1}</span><span style="color:#e8eaf0;font-weight:600;">${name}</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span style="color:${i<3?'#f5a623':'#9ca3af'};font-weight:700;width:20px;">#${i+1}</span><span style="color:#e8eaf0;font-weight:600;">${name}</span><span style="color:#6b7280;font-size:11px;">${v.category}</span></div>
         <div><span style="color:#f5a623;font-weight:800;font-size:15px;">${fmt(v.total)}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">${v.qty}個</span></div>
       </div>
       <div style="background:#22263a;border-radius:6px;height:8px;overflow:hidden;"><div style="width:${(v.total/max)*100}%;background:${rankColors[i]||'rgba(107,114,128,.5)'};height:100%;border-radius:6px;"></div></div>
     </div>`).join('');
-    content=`<div class="card"><div style="font-weight:700;margin-bottom:14px;">商品別売上ランキング</div>${rows.length?items:'<div style="color:#6b7280;font-size:13px;text-align:center;padding:32px 0;">データなし</div>'}</div>`;
+
+    const bodyHtml = needsKey
+      ? '<div style="color:#6b7280;font-size:13px;text-align:center;padding:32px 0;">期間を選択してください</div>'
+      : (rows.length?items:'<div style="color:#6b7280;font-size:13px;text-align:center;padding:32px 0;">データなし</div>');
+
+    content=`${filterBar}<div class="card"><div style="font-weight:700;margin-bottom:14px;">商品別売上ランキング</div>${bodyHtml}</div>`;
   }
 
   return `<div><h2>売上管理</h2>
