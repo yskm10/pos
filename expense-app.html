@@ -205,11 +205,48 @@
   .toast.show{opacity:1;}
   .loading{text-align:center;padding:16px;font-size:12px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;}
   .err{color:var(--stamp);font-size:12px;margin-top:8px;}
+
+  .login-screen{
+    position:fixed;inset:0;background:var(--paper);z-index:200;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .login-card{
+    background:var(--white);padding:32px 24px;max-width:340px;width:100%;
+    box-shadow:0 2px 12px rgba(0,0,0,.1);text-align:center;
+  }
+  .login-card h2{
+    font-family:'Shippori Mincho',serif;font-size:20px;margin:0 0 4px;letter-spacing:.1em;
+  }
+  .login-card p{font-size:11px;color:var(--ink-soft);margin:0 0 20px;font-family:'JetBrains Mono',monospace;}
+  .login-card .field{text-align:left;}
+  .logout-btn{
+    position:absolute;top:14px;right:14px;background:none;border:none;
+    color:var(--paper);opacity:.6;font-size:11px;cursor:pointer;letter-spacing:.05em;
+    font-family:'Noto Sans JP',sans-serif;
+  }
 </style>
 </head>
 <body>
 
-<div class="roll">
+<div class="login-screen" id="loginScreen" style="display:none;">
+  <div class="login-card">
+    <h2>経 費 帳</h2>
+    <p>RECEIPT LEDGER · MEDICOM</p>
+    <div class="field">
+      <label>メールアドレス</label>
+      <input type="email" id="login-email" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>パスワード</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <div id="loginErr"></div>
+    <button class="btn btn-stamp" id="loginBtn">ログイン</button>
+  </div>
+</div>
+
+<div class="roll" style="position:relative;">
+  <button class="logout-btn" id="logoutBtn" style="display:none;" onclick="doLogout()">ログアウト</button>
   <h1>経 費 帳</h1>
   <p>RECEIPT LEDGER · MEDICOM</p>
 </div>
@@ -221,7 +258,7 @@
   <button class="tab" data-tab="summary">集計</button>
 </div>
 
-<div class="wrap">
+<div class="wrap" id="mainWrap" style="display:none;">
 
   <!-- 入力パネル -->
   <div class="panel active" id="panel-input">
@@ -303,6 +340,64 @@ function toast(msg){
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 2200);
 }
+
+// ---- auth ----
+async function checkAuthAndInit(){
+  const { data:{session} } = await sb.auth.getSession();
+  if(session){
+    showApp();
+  } else {
+    showLogin();
+  }
+}
+
+function showLogin(){
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('mainWrap').style.display = 'none';
+  document.getElementById('logoutBtn').style.display = 'none';
+}
+
+function showApp(){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainWrap').style.display = 'block';
+  document.getElementById('logoutBtn').style.display = 'block';
+  loadData();
+}
+
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('loginErr');
+  errEl.innerHTML = '';
+  if(!email || !password){
+    errEl.innerHTML = '<div class="err">メールアドレスとパスワードを入力してください</div>';
+    return;
+  }
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'ログイン中...';
+  try{
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    showApp();
+  }catch(e){
+    errEl.innerHTML = `<div class="err">ログインに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = 'ログイン';
+}
+
+async function doLogout(){
+  await sb.auth.signOut();
+  showLogin();
+}
+
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });
+
+sb.auth.onAuthStateChange((event, session)=>{
+  if(event==='SIGNED_OUT'){ showLogin(); }
+});
 
 // ---- data (Supabase) ----
 async function loadData(){
@@ -640,7 +735,7 @@ function exportCSV(){
   URL.revokeObjectURL(url);
 }
 
-loadData();
+checkAuthAndInit();
 
 // ---- credit card import ----
 let importCardType = 'corp';
