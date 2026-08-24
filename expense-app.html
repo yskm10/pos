@@ -774,6 +774,7 @@ function renderPettyCash(){
         <div>
           <div class="receipt-date">${r.date} ・ ${label}</div>
           <div class="receipt-vendor" style="font-size:13px;">${desc || '-'}</div>
+          <button class="btn btn-ghost" style="width:auto;padding:4px 10px;margin-top:6px;font-size:10px;color:var(--stamp);border-color:var(--stamp);" onclick="deletePettyCash('${r.id}', ${r.linked_expense_id ? `'${r.linked_expense_id}'` : 'null'}, ${!!r.has_receipt})">削除</button>
         </div>
         <div style="text-align:right;">
           <div class="receipt-amount" style="color:${isIn ? 'var(--sage)' : 'var(--stamp)'};font-size:16px;">${isIn?'+':'-'}¥${Number(r.amount).toLocaleString()}</div>
@@ -782,6 +783,29 @@ function renderPettyCash(){
       </div>
     </div>`;
   }).join('');
+}
+
+async function deletePettyCash(id, linkedExpenseId, hasReceipt){
+  const msg = linkedExpenseId ? 'この記録を削除しますか？連動している経費データも一緒に削除されます(元に戻せません)' : 'この記録を削除しますか？(元に戻せません)';
+  if(!confirm(msg)) return;
+  try{
+    const { error } = await sb.from('petty_cash').delete().eq('id', id);
+    if(error) throw error;
+    if(linkedExpenseId){
+      await sb.from('expenses').delete().eq('id', linkedExpenseId);
+      expenses = expenses.filter(x=>x.id!==linkedExpenseId);
+      if(hasReceipt){
+        try{ await sb.storage.from('receipts').remove([`${linkedExpenseId}.jpg`]); }catch(e){ console.error('receipt delete failed', e); }
+      }
+      renderList();
+      renderSummary();
+    }
+    toast('削除しました');
+    loadPettyCash();
+  }catch(e){
+    console.error('delete petty cash failed', e);
+    toast('削除に失敗しました: ' + (e.message||String(e)));
+  }
 }
 
 
@@ -800,11 +824,34 @@ function renderList(){
           <div class="receipt-vendor">${escapeHtml(e.vendor)}</div>
           <span class="receipt-cat">${e.category}</span>
           <div class="receipt-pay">${e.payment}${e.memo ? ' ・ '+escapeHtml(e.memo) : ''}</div>
-          ${e.hasReceipt ? `<div style="margin-top:6px;"><button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="viewReceipt('${e.id}')">レシート画像を見る</button></div>` : ''}
+          <div style="margin-top:6px;display:flex;gap:6px;">
+            ${e.hasReceipt ? `<button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="viewReceipt('${e.id}')">レシート画像を見る</button>` : ''}
+            <button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;color:var(--stamp);border-color:var(--stamp);" onclick="deleteExpense('${e.id}', ${e.hasReceipt})">削除</button>
+          </div>
         </div>
         <div class="receipt-amount">¥${e.amount.toLocaleString()}</div>
       </div>
     </div>`).join('');
+}
+
+async function deleteExpense(id, hasReceipt){
+  if(!confirm('この経費を削除しますか？(元に戻せません)')) return;
+  try{
+    await sb.from('petty_cash').delete().eq('linked_expense_id', id);
+    const { error } = await sb.from('expenses').delete().eq('id', id);
+    if(error) throw error;
+    if(hasReceipt){
+      try{ await sb.storage.from('receipts').remove([`${id}.jpg`]); }catch(e){ console.error('receipt delete failed', e); }
+    }
+    expenses = expenses.filter(x=>x.id!==id);
+    toast('削除しました');
+    renderList();
+    renderSummary();
+    loadPettyCash();
+  }catch(e){
+    console.error('delete expense failed', e);
+    toast('削除に失敗しました: ' + (e.message||String(e)));
+  }
 }
 
 async function viewReceipt(id){
