@@ -271,6 +271,7 @@
   <button class="tab active" data-tab="input">入力</button>
   <button class="tab" data-tab="list">一覧</button>
   <button class="tab" data-tab="import">取込</button>
+  <button class="tab" data-tab="pettycash">小口現金</button>
   <button class="tab" data-tab="summary">集計</button>
 </div>
 
@@ -315,6 +316,19 @@
     <button class="btn btn-primary" onclick="parseImport()">明細を読み込む</button>
     <div id="importMapArea"></div>
     <div id="importPreviewArea"></div>
+  </div>
+
+  <!-- 小口現金パネル -->
+  <div class="panel" id="panel-pettycash">
+    <div class="preview-card" style="text-align:center;">
+      <div class="sum-title">現在の残高</div>
+      <div id="pettyCashBalance" style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;">¥0</div>
+    </div>
+    <button class="btn btn-primary" onclick="openPettyForm('入金')">入金を記録</button>
+    <button class="btn btn-ghost" onclick="openPettyForm('出金_釣銭')">釣銭用の出金を記録</button>
+    <button class="btn btn-stamp" onclick="startPettyCashExpense()">レシートで経費出金を記録</button>
+    <div id="pettyFormArea"></div>
+    <div id="pettyLedgerArea" style="margin-top:16px;"></div>
   </div>
 
   <!-- 集計パネル -->
@@ -378,6 +392,7 @@ function showApp(){
   document.getElementById('mainWrap').style.display = 'block';
   document.getElementById('logoutBtn').style.display = 'block';
   loadData();
+  loadPettyCash();
 }
 
 async function doLogin(){
@@ -595,6 +610,8 @@ function selectPay(btn){
   btn.classList.add('sel');
 }
 
+let pettyCashExpenseMode = false;
+
 function confirmExpense(){
   const pay = document.querySelector('.paytoggle button.sel').dataset.pay;
   const vendor = document.getElementById('f-vendor').value.trim();
@@ -618,11 +635,12 @@ function base64ToBlob(base64, mime){
 
 async function saveExpenseToSupabase(entry){
   const imageToStore = currentImageBase64;
+  const wasPettyCash = pettyCashExpenseMode;
   try{
     const { data, error } = await sb.from('expenses').insert([{
       date: entry.date, amount: entry.amount, vendor: entry.vendor,
-      category: entry.category, memo: entry.memo, payment: entry.payment,
-      has_receipt: entry.hasReceipt
+      category: entry.category, memo: wasPettyCash ? (entry.memo ? entry.memo+'(小口現金)' : '(小口現金)') : entry.memo,
+      payment: entry.payment, has_receipt: entry.hasReceipt
     }]).select();
     if(error) throw error;
     const saved = data[0];
@@ -642,20 +660,131 @@ async function saveExpenseToSupabase(entry){
         toast('登録はできましたが、レシート画像の保存に失敗しました');
       }
     }
+
+    if(wasPettyCash){
+      try{
+        const { error: pcErr } = await sb.from('petty_cash').insert([{
+          date: entry.date, type: '出金_経費', amount: entry.amount,
+          vendor: entry.vendor, category: entry.category, memo: entry.memo,
+          has_receipt: entry.hasReceipt, linked_expense_id: saved.id
+        }]);
+        if(pcErr) throw pcErr;
+      }catch(e){
+        console.error('petty cash link insert failed', e);
+        toast('経費は登録できましたが、小口現金の帳簿への反映に失敗しました');
+      }
+    }
     toast('登録しました');
   }catch(e){
     console.error('expense insert failed', e);
     toast('登録に失敗しました: ' + (e.message||String(e)));
   }
   currentImageBase64 = null;
+  pettyCashExpenseMode = false;
   document.getElementById('previewArea').innerHTML = '';
   document.getElementById('formArea').innerHTML = '';
   document.getElementById('fileInput').value = '';
   renderList();
   renderSummary();
+  if(wasPettyCash){
+    loadPettyCash();
+    document.querySelector('.tab[data-tab="pettycash"]').click();
+  }
 }
 
-// ---- list ----
+// ---- petty cash ----
+function startPettyCashExpense(){
+  pettyCashExpenseMode = true;
+  document.getElementById('previewArea').innerHTML = '';
+  document.getElementById('formArea').innerHTML = '';
+  document.getElementById('fileInput').value = '';
+  document.querySelector('.tab[data-tab="input"]').click();
+  toast('レシートを撮影・選択してください(小口現金の経費出金として記録されます)');
+  document.getElementById('fileInput').click();
+}
+
+function openPettyForm(type){
+  const area = document.getElementById('pettyFormArea');
+  const label = type==='入金' ? '入金' : '釣銭用の出金';
+  area.innerHTML = `
+    <div class="preview-card">
+      <div class="sum-title">${label}を記録</div>
+      <div class="field"><label>日付</label><input type="date" id="petty-date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>金額</label><input type="number" id="petty-amount"></div>
+      <div class="field"><label>摘要</label><input type="text" id="petty-memo" placeholder="${type==='入金' ? '例: 現金売上からの補充' : '例: レジ釣銭用'}"></div>
+      <button class="btn btn-stamp" onclick="submitPettyForm('${type}')">記録する</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('pettyFormArea').innerHTML=''">キャンセル</button>
+    </div>`;
+}
+
+async function submitPettyForm(type){
+  const date = document.getElementById('petty-date').value;
+  const amount = Number(document.getElementById('petty-amount').value)||0;
+  const memo = document.getElementById('petty-memo').value.trim();
+  if(!date || !amount){
+    toast('日付と金額を確認してください');
+    return;
+  }
+  try{
+    const { error } = await sb.from('petty_cash').insert([{ date, type, amount, memo }]);
+    if(error) throw error;
+    toast('記録しました');
+  }catch(e){
+    console.error('petty cash insert failed', e);
+    toast('記録に失敗しました: ' + (e.message||String(e)));
+  }
+  document.getElementById('pettyFormArea').innerHTML = '';
+  loadPettyCash();
+}
+
+let pettyCashRows = [];
+
+async function loadPettyCash(){
+  try{
+    const { data, error } = await sb.from('petty_cash').select('*').order('date', {ascending:true}).order('created_at', {ascending:true});
+    if(error) throw error;
+    pettyCashRows = data||[];
+  }catch(e){
+    console.error('loadPettyCash error', e);
+    toast('小口現金データの読み込みに失敗しました');
+  }
+  renderPettyCash();
+}
+
+function renderPettyCash(){
+  let balance = 0;
+  const withBalance = pettyCashRows.map(r=>{
+    balance += (r.type==='入金' ? Number(r.amount) : -Number(r.amount));
+    return {...r, balance};
+  });
+  document.getElementById('pettyCashBalance').textContent = '¥' + balance.toLocaleString();
+
+  const area = document.getElementById('pettyLedgerArea');
+  if(withBalance.length===0){
+    area.innerHTML = '<div class="empty">まだ記録がありません</div>';
+    return;
+  }
+  area.innerHTML = withBalance.slice().reverse().map(r=>{
+    const isIn = r.type==='入金';
+    const label = r.type==='入金' ? '入金' : (r.type==='出金_釣銭' ? '釣銭出金' : '経費出金');
+    const desc = r.vendor ? `${escapeHtml(r.vendor)}${r.category ? '・'+r.category : ''}` : escapeHtml(r.memo||'');
+    return `
+    <div class="receipt" style="clip-path:none;padding:12px 14px;">
+      <div class="receipt-top">
+        <div>
+          <div class="receipt-date">${r.date} ・ ${label}</div>
+          <div class="receipt-vendor" style="font-size:13px;">${desc || '-'}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="receipt-amount" style="color:${isIn ? 'var(--sage)' : 'var(--stamp)'};font-size:16px;">${isIn?'+':'-'}¥${Number(r.amount).toLocaleString()}</div>
+          <div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">残高 ¥${r.balance.toLocaleString()}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+
 function renderList(){
   const area = document.getElementById('listArea');
   if(expenses.length===0){
