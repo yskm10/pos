@@ -152,9 +152,16 @@ function showToast(msg, type='ok'){
 // ═══════════════════════════════════════════
 // キャッシュドロワー制御（ePOS-Print API）
 // ═══════════════════════════════════════════
+// プリンター中継サーバーの完全URLを組み立てる（末尾スラッシュの有無を吸収）
+function printerUrl(path){
+  const base = (STATE.shop.printerProxyUrl || 'http://192.168.10.200:8080').replace(/\/$/, '');
+  return base + path;
+}
+
 async function openCashDrawer(){
+  if(STATE.viewOnly) return;
   // プロキシサーバー経由でプリンターに送信（CORS回避）
-  const url = '/printer/';
+  const url = printerUrl('/printer/');
   const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><pulse drawer="drawer_1" time="pulse_100"/></epos-print></s:Body></s:Envelope>`;
   try{
     const res = await fetch(url, {
@@ -168,7 +175,8 @@ async function openCashDrawer(){
       showToast('ドロワー開放失敗: HTTP '+res.status,'error');
     }
   }catch(e){
-    showToast('ドロワー開放失敗: '+e.message,'error');
+    const hint = (location.protocol==='https:') ? '（GitHub Pages経由の場合、お店のWi-Fi内で操作してください）' : '';
+    showToast('ドロワー開放失敗: '+e.message+hint,'error');
   }
 }
 // ═══════════════════════════════════════════
@@ -461,9 +469,13 @@ function viewOrder(){
       <div class="menu-items">${menuItems}</div>
     </div>
     <div class="order-panel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="color:#e8eaf0;font-weight:800;font-size:17px;">${t.name}</span>
         ${badge(t.status, SC[t.status]||'#6b7280')}
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:12px;">
+        <button class="btn-ghost" onclick="openMoveTablePicker()" style="flex:1;padding:7px 0;font-size:12px;">↪️ 卓移動</button>
+        <button class="btn-ghost" onclick="openMergeTablePicker()" style="flex:1;padding:7px 0;font-size:12px;">🔗 卓結合</button>
       </div>
       <div class="order-list">
         ${pending.length>0?'<div style="color:#f5a623;font-size:11px;font-weight:700;margin-bottom:6px;">── 未提供 ──</div>':''}
@@ -627,6 +639,89 @@ async function cancelOrderItem(itemUid){
   });
 }
 
+
+// ═══════════════════════════════════════════
+// テーブル移動・結合
+// ═══════════════════════════════════════════
+function openMoveTablePicker(){
+  const current = STATE.tables.find(t=>t.id===STATE.selId);
+  if(!current) return;
+  const candidates = STATE.tables.filter(t=>t.id!==current.id && t.status==='空席');
+  if(candidates.length===0){ showToast('移動先の空席テーブルがありません','error'); return; }
+  showTablePicker({
+    title: `「${current.name}」の注文をどこに移動しますか？`,
+    subtitle: '移動先は空席のテーブルのみ選べます',
+    candidates,
+    onPick: (targetId)=> doMoveTable(current.id, targetId),
+  });
+}
+
+function openMergeTablePicker(){
+  const current = STATE.tables.find(t=>t.id===STATE.selId);
+  if(!current) return;
+  const candidates = STATE.tables.filter(t=>t.id!==current.id && (t.status==='使用中'||t.status==='会計待ち') && JSON.parse(t.order_json||'[]').length>0);
+  if(candidates.length===0){ showToast('結合できる注文中のテーブルがありません','error'); return; }
+  showTablePicker({
+    title: `どのテーブルを「${current.name}」に結合しますか？`,
+    subtitle: '結合すると、選んだテーブルの注文はこちらにまとめられ、選んだテーブルは空席になります',
+    candidates,
+    onPick: (targetId)=> doMergeTable(current.id, targetId),
+  });
+}
+
+function showTablePicker({title, subtitle, candidates, onPick}){
+  const overlay = document.createElement('div');
+  overlay.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:24px;';
+  const rows = candidates.map(t=>{
+    const order = JSON.parse(t.order_json||'[]');
+    const sub = calcSub(order);
+    return `<button onclick="this.closest('div[style*=fixed]').remove();window._tablePickerPick('${t.id}')"
+      style="width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;background:#22263a;border:1px solid #2e3250;border-radius:10px;color:#e8eaf0;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-weight:700;">${t.name}</span>
+      <span style="color:#9ca3af;font-size:12px;">${t.status}${order.length>0?' ・ '+fmt(sub):''}</span>
+    </button>`;
+  }).join('');
+  overlay.innerHTML = `
+    <div style="background:#1a1d27;border:1px solid #2e3250;border-radius:16px;padding:24px;max-width:400px;width:100%;max-height:70vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+      <div style="color:#e8eaf0;font-weight:700;font-size:16px;margin-bottom:6px;">${title}</div>
+      <div style="color:#6b7280;font-size:12px;margin-bottom:16px;">${subtitle}</div>
+      ${rows}
+      <button onclick="this.closest('div[style*=fixed]').remove()" style="width:100%;padding:10px 0;margin-top:6px;background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#9ca3af;font-weight:700;">キャンセル</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.onclick = e=>{ if(e.target===overlay) overlay.remove(); };
+  window._tablePickerPick = onPick;
+}
+
+async function doMoveTable(fromId, toId){
+  const from = STATE.tables.find(t=>t.id===fromId);
+  const to = STATE.tables.find(t=>t.id===toId);
+  if(!from || !to) return;
+  if(to.status!=='空席'){ showToast('移動先は空席のテーブルのみ選べます','error'); return; }
+  confirm2(`「${from.name}」の注文を「${to.name}」に移動しますか？`, async()=>{
+    await syncTable(toId, {status:from.status, order_json:from.order_json, opened_at:from.opened_at});
+    await syncTable(fromId, {status:'空席', order_json:'[]', opened_at:null});
+    STATE.selId = toId;
+    showToast(`「${from.name}」から「${to.name}」へ移動しました`);
+    render();
+  });
+}
+
+async function doMergeTable(intoId, fromId){
+  const into = STATE.tables.find(t=>t.id===intoId);
+  const from = STATE.tables.find(t=>t.id===fromId);
+  if(!into || !from) return;
+  confirm2(`「${from.name}」の注文を「${into.name}」に結合しますか？<br><span style="font-size:12px;color:#9ca3af;">「${from.name}」は空席に戻ります</span>`, async()=>{
+    const intoOrder = JSON.parse(into.order_json||'[]');
+    const fromOrder = JSON.parse(from.order_json||'[]');
+    const mergedOrder = [...intoOrder, ...fromOrder];
+    await syncTable(intoId, {order_json:JSON.stringify(mergedOrder)});
+    await syncTable(fromId, {status:'空席', order_json:'[]', opened_at:null});
+    showToast(`「${from.name}」を「${into.name}」に結合しました`);
+    render();
+  });
+}
+
 async function doAddItem(item, selectedOpts, extraPrice=0){
   const t = STATE.tables.find(t=>t.id===STATE.selId);
   if(!t){showToast('テーブルが見つかりません','error');return;}
@@ -759,7 +854,7 @@ async function doPrint(){
   const body = '<text font="font_b"/>' + lines.map(l=>`<text lang="ja">${escXml(l)}&#10;</text>`).join('') + '<cut type="feed"/>';
   const xml = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${body}</epos-print></s:Body></s:Envelope>`;
   try{
-    const res = await fetch('/printer/', {
+    const res = await fetch(printerUrl('/printer/'), {
       method: 'POST',
       headers: {'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': '""'},
       body: xml,
@@ -770,7 +865,8 @@ async function doPrint(){
       if(el) el.innerHTML=`<div style="color:#e05252;font-size:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ 印刷失敗: HTTP ${res.status}</div>`;
     }
   }catch(e){
-    if(el) el.innerHTML=`<div style="color:#e05252;font-size:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ ${e.message}</div>`;
+    const hint = (location.protocol==='https:') ? '（お店のWi-Fi内で操作してください）' : '';
+    if(el) el.innerHTML=`<div style="color:#e05252;font-size:12px;padding:8px 12px;background:rgba(224,82,82,.1);border-radius:8px;">❌ ${e.message}${hint}</div>`;
   }
 }
 
@@ -1045,17 +1141,32 @@ function viewCash(){
       content=`
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
         <div class="card" style="margin-bottom:16px;">
-          <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:6px;">🌅 開店両替金を登録</div>
+          <div style="color:#5b8ef5;font-weight:700;font-size:15px;margin-bottom:6px;">🌅 開店両替金を登録</div>
           ${inheritMsg}
           ${denomRows(cs.openCounts,'updateOpenCount')}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
             <span style="color:#e8eaf0;font-weight:700;font-size:15px;">合　計</span>
             <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(denomTotal(cs.openCounts))}</span>
           </div>
+          ${STATE.viewOnly?'':`
           <input placeholder="メモ（任意）" value="${cs.openNote}" oninput="window._cashState.openNote=this.value" style="margin-top:12px;">
-          <button class="btn-primary" onclick="doOpenRegister()" style="width:100%;padding:12px 0;margin-top:14px;" ${denomTotal(cs.openCounts)===0?'disabled':''}>開店記録を登録</button>
+          <button class="btn-primary" onclick="doOpenRegister()" style="width:100%;padding:12px 0;margin-top:14px;" ${denomTotal(cs.openCounts)===0?'disabled':''}>開店記録を登録</button>`}
         </div>`;
     }else if(isOpen){
+      if(STATE.viewOnly){
+        const checkRowsVO=[
+          {label:'開店両替金',value:fmt(openAmt),color:'#5b8ef5'},
+          {label:'現金売上',value:fmt(cashSalesToday),color:'#4caf80'},
+          {label:'レジ金移動',value:(transferNet>=0?'+':'')+fmt(Math.abs(transferNet)),color:'#6b7280'},
+          {label:'理論残高',value:fmt(expected),color:'#f5a623'},
+        ].map(r=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;"><span style="color:#9ca3af;">${r.label}</span><span style="color:${r.color};font-weight:600;">${r.value}</span></div>`).join('');
+        content=`
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
+        <div class="card">
+          <div style="color:#f5a623;font-weight:700;font-size:15px;margin-bottom:14px;">🌅 営業中（閲覧のみ）</div>
+          ${checkRowsVO}
+        </div>`;
+      }else{
       const txRows=cs.transfers.map(t=>`
         <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;">
           <div style="display:flex;gap:10px;">
@@ -1086,14 +1197,14 @@ function viewCash(){
                 <button onclick="window._cashState.txType='in';render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txType==='in'?'#4caf80':'#2e3250'};background:${cs.txType==='in'?'rgba(76,175,128,.13)':'transparent'};color:${cs.txType==='in'?'#4caf80':'#9ca3af'};font-weight:700;font-size:13px;">▲ 入金</button>
               </div>
             </div>
-            <div style="flex:1;min-width:110px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">金額</div><input type="number" inputmode="numeric" min="0" value="${cs.txAmount}" oninput="window._cashState.txAmount=this.value" placeholder="0"></div>
+            <div style="flex:1;min-width:110px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">金額</div><input type="number" inputmode="numeric" min="0" id="tx-amount-input" value="${cs.txAmount}" oninput="setTxAmount(this.value)" placeholder="0"></div>
             <div style="flex:2;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メモ</div><input value="${cs.txNote}" oninput="window._cashState.txNote=this.value" placeholder="例: 両替"></div>
-            <button class="btn-ghost" onclick="addTx()" style="padding:8px 16px;" ${!cs.txAmount||Number(cs.txAmount)<=0?'disabled':''}>追加</button>
+            <button class="btn-ghost" onclick="addTx()" style="padding:8px 16px;" ${!cs.txAmount||!isFinite(Number(cs.txAmount))||Number(cs.txAmount)<=0?'disabled':''}>追加</button>
           </div>
           ${cs.transfers.length>0?`<div style="border-top:1px solid #2e3250;padding-top:10px;">${txRows}</div>`:''}
         </div>
         <div class="card" style="border:1px solid rgba(245,166,35,.2);">
-          <div style="color:#e8eaf0;font-weight:700;font-size:15px;margin-bottom:16px;">🌙 閉店 — レジ内現金を実査</div>
+          <div style="color:#e05252;font-weight:700;font-size:15px;margin-bottom:16px;">🌙 閉店 — レジ内現金を実査</div>
           ${denomRows(cs.closeCounts,'updateCloseCount')}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
             <span style="color:#e8eaf0;font-weight:700;font-size:15px;">合　計</span>
@@ -1110,6 +1221,7 @@ function viewCash(){
             </div>`:''}
           <button class="btn-danger" onclick="doCloseRegister()" style="width:100%;padding:12px 0;margin-top:14px;font-size:15px;" ${closeAmt===0?'disabled':''}>閉店処理を確定</button>
         </div>`;
+      }
     }else if(isClosed){
       const rows2=[
         {label:'開店両替金',value:fmt(todayLog.open_amount||0),color:'#5b8ef5'},
@@ -1119,32 +1231,44 @@ function viewCash(){
       content=`
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
         <div class="card">
-          <div style="color:#e8eaf0;font-weight:700;font-size:16px;margin-bottom:16px;">✅ 本日の閉店集計</div>
+          <div style="color:#e05252;font-weight:700;font-size:16px;margin-bottom:16px;">✅ 本日の閉店集計</div>
           ${rows2}
           <div style="display:flex;justify-content:space-between;align-items:center;padding-top:14px;">
             <span style="color:#e8eaf0;font-weight:800;font-size:16px;">過不足</span>
             <span style="font-weight:900;font-size:28px;color:${todayLog.diff===0?'#4caf80':todayLog.diff>0?'#5b8ef5':'#e05252'};">${todayLog.diff===0?'± 0':(todayLog.diff>0?'+':'')+fmt(todayLog.diff)}</span>
           </div>
           <div style="margin-top:14px;color:#5b8ef5;font-size:13px;padding:8px 12px;background:rgba(91,142,245,.1);border-radius:8px;">📋 明日の開店時に閉店額（${fmt(todayLog.close_amount)}）が自動で引き継がれます</div>
+          ${STATE.viewOnly?'':`<button class="btn-ghost" onclick="reopenRegister()" style="width:100%;padding:10px 0;margin-top:12px;font-size:13px;color:#e05252;border-color:rgba(224,82,82,.3);">↩️ 間違えて閉めた場合はこちら（閉店を取り消す）</button>`}
         </div>`;
     }
   }else{
     const logs=[...STATE.cashLogs].sort((a,b)=>b.date.localeCompare(a.date));
-    content=logs.length===0?'<div class="card"><div style="color:#6b7280;font-size:14px;">まだ記録がありません</div></div>':logs.map(log=>`
-      <div class="card" style="margin-bottom:10px;">
+    content=logs.length===0?'<div class="card"><div style="color:#6b7280;font-size:14px;">まだ記録がありません</div></div>':logs.map(log=>{
+      const isClosedLog = !!log.closed_at;
+      const borderColor = isClosedLog ? '#e05252' : '#f5a623';
+      const statusBadge = isClosedLog
+        ? `<span style="display:inline-flex;align-items:center;gap:4px;color:#e05252;font-size:11px;font-weight:700;background:rgba(224,82,82,.13);padding:3px 9px;border-radius:99px;">🌙 閉店済み</span>`
+        : `<span style="display:inline-flex;align-items:center;gap:4px;color:#f5a623;font-size:11px;font-weight:700;background:rgba(245,166,35,.13);padding:3px 9px;border-radius:99px;">🌅 営業中</span>`;
+      return `
+      <div class="card" style="margin-bottom:10px;border-left:3px solid ${borderColor};">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-          <div><div style="color:#e8eaf0;font-weight:700;margin-bottom:6px;">${log.date}</div>
+          <div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="color:#e8eaf0;font-weight:700;">${log.date}</span>
+              ${statusBadge}
+            </div>
             <div style="display:flex;gap:14px;font-size:13px;flex-wrap:wrap;">
               <span style="color:#9ca3af;">両替金 <span style="color:#5b8ef5;font-weight:600;">${fmt(log.open_amount||0)}</span></span>
               <span style="color:#9ca3af;">現金売上 <span style="color:#4caf80;font-weight:600;">${fmt(log.cash_sales||0)}</span></span>
             </div>
           </div>
-          ${log.closed_at?`<div style="text-align:right;"><div style="font-size:11px;color:#9ca3af;margin-bottom:2px;">過不足</div><div style="font-weight:900;font-size:22px;color:${log.diff===0?'#4caf80':log.diff>0?'#5b8ef5':'#e05252'};">${log.diff===0?'± 0':(log.diff>0?'+':'')+fmt(log.diff)}</div></div>`:badge('営業中','#f5a623')}
+          ${isClosedLog?`<div style="text-align:right;"><div style="font-size:11px;color:#9ca3af;margin-bottom:2px;">過不足</div><div style="font-weight:900;font-size:22px;color:${log.diff===0?'#4caf80':log.diff>0?'#5b8ef5':'#e05252'};">${log.diff===0?'± 0':(log.diff>0?'+':'')+fmt(log.diff)}</div></div>`:''}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
-  return `<div style="max-width:760px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h2 style="margin-bottom:0;">レジ金管理</h2><button class="btn-ghost" onclick="openCashDrawer()" style="padding:8px 18px;font-size:14px;">🔓 ドロワーを開く</button></div><div style="display:flex;gap:6px;margin-bottom:20px;">${tabBtns}</div>${content}</div>`;
+  return `<div style="max-width:760px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><h2 style="margin-bottom:0;">レジ金管理${STATE.viewOnly?'<span style="color:#6b7280;font-size:12px;font-weight:400;margin-left:8px;">（閲覧のみ）</span>':''}</h2>${STATE.viewOnly?'':`<button class="btn-ghost" onclick="openCashDrawer()" style="padding:8px 18px;font-size:14px;">🔓 ドロワーを開く</button>`}</div><div style="display:flex;gap:6px;margin-bottom:20px;">${tabBtns}</div>${content}</div>`;
 }
 
 function updateOpenCount(v,val){
@@ -1170,14 +1294,33 @@ function restoreDenomFocus(onChange,v,renderFn){
     }
   }
 }
+function setTxAmount(v){
+  window._cashState.txAmount = v;
+  const el = document.getElementById('tx-amount-input');
+  const selStart = el ? el.selectionStart : null;
+  const selEnd   = el ? el.selectionEnd   : null;
+  const hadFocus = el ? (document.activeElement===el) : false;
+  render();
+  if(hadFocus){
+    const newEl = document.getElementById('tx-amount-input');
+    if(newEl){
+      newEl.focus();
+      try{ newEl.setSelectionRange(selStart, selEnd); }catch(e){}
+    }
+  }
+}
 function addTx(){
+  if(STATE.viewOnly) return;
   const cs=window._cashState;
-  if(!cs.txAmount||Number(cs.txAmount)<=0)return;
-  cs.transfers.push({id:Date.now(),type:cs.txType,amount:Number(cs.txAmount),note:cs.txNote});
+  const n=Number(cs.txAmount);
+  if(!cs.txAmount||!isFinite(n)||n<=0)return;
+  cs.transfers.push({id:Date.now(),type:cs.txType,amount:n,note:cs.txNote});
   cs.txAmount='';cs.txNote='';render();
 }
-function removeTx(id){window._cashState.transfers=window._cashState.transfers.filter(t=>t.id!==id);render();}
+function removeTx(id){
+  if(STATE.viewOnly) return;window._cashState.transfers=window._cashState.transfers.filter(t=>t.id!==id);render();}
 async function doOpenRegister(){
+  if(STATE.viewOnly) return;
   const cs=window._cashState;
   const amount=denomTotal(cs.openCounts);if(amount===0)return;
   await sdb.insert('cash_logs',{date:todayStr(),open_amount:amount,open_counts:JSON.stringify(cs.openCounts),note:cs.openNote,opened_at:new Date().toISOString()});
@@ -1186,6 +1329,7 @@ async function doOpenRegister(){
   render();
 }
 async function doCloseRegister(){
+  if(STATE.viewOnly) return;
   if(!window._doCloseConfirmed){
     confirmAction('閉店処理を確定しますか？確定後は変更できません。', '閉店を確定する', async()=>{
       window._doCloseConfirmed=true;
@@ -1208,6 +1352,28 @@ async function doCloseRegister(){
   const r=await sdb.get('cash_logs',[],'date.desc');
   if(Array.isArray(r))STATE.cashLogs=r;
   render();
+}
+
+async function reopenRegister(){
+  if(STATE.viewOnly) return;
+  confirmAction('閉店を取り消しますか？<br><span style="font-size:12px;color:#9ca3af;">実査額の記録は消え、営業中の状態に戻ります（入出金の履歴は引き継がれます）</span>', '閉店を取り消す', async()=>{
+    const today = todayStr();
+    const todayLog = STATE.cashLogs.find(l=>l.date===today);
+    if(!todayLog) return;
+    // 閉店前に登録していた入出金履歴を復元する
+    let restoredTransfers = [];
+    try{ restoredTransfers = JSON.parse(todayLog.transfers_json||'[]'); }catch(e){ restoredTransfers = []; }
+    await sdb.update('cash_logs',[['date','eq',today]],{
+      close_amount:null, close_counts:null, cash_sales:0, transfer_net:0,
+      diff:null, closed_at:null,
+    });
+    const r = await sdb.get('cash_logs',[],'date.desc');
+    if(Array.isArray(r)) STATE.cashLogs=r;
+    // レジ金入力状態をリセットしつつ、入出金履歴だけ復元して営業中画面に戻す
+    window._cashState = {tab:'today',openCounts:emptyDenoms(),openNote:'',closeCounts:emptyDenoms(),transfers:restoredTransfers,txType:'out',txAmount:'',txNote:'',_inheritDone:true};
+    showToast('閉店を取り消しました。営業中の状態に戻りました');
+    render();
+  });
 }
 
 // ═══════════════════════════════════════════
@@ -1608,8 +1774,10 @@ function viewSettings(){
           <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">${f.l}</div>
           <input id="shop-${f.k}" value="${s[f.k]||''}" placeholder="${f.p}">
         </div>`).join('')}
-      <div style="margin-bottom:14px;padding:10px 12px;background:#22263a;border-radius:8px;">
-        <div style="color:#6b7280;font-size:11px;line-height:1.6;">🖨 プリンター接続先はPCのプロキシサーバー（proxy.py）側で設定します。この画面での設定は不要です。</div>
+      <div style="margin-bottom:14px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">🖨 プリンター中継サーバーのアドレス</div>
+        <input id="shop-printerProxyUrl" value="${s.printerProxyUrl||'http://192.168.10.200:8080'}" placeholder="http://192.168.10.200:8080">
+        <div style="color:#6b7280;font-size:11px;line-height:1.6;margin-top:4px;">お店のWi-Fi内にいるときだけ、印刷・ドロワー操作でこのアドレスに接続します。外出先では印刷関連のボタンは使えません。</div>
       </div>
     </div>
     <button class="btn-primary" onclick="saveShop()" style="width:100%;padding:12px 0;font-size:16px;">設定を保存</button>
@@ -1639,19 +1807,20 @@ async function testPrint(){
   const dateStr  = escXml(new Date().toLocaleString('ja-JP'));
   const xml  = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><text font="font_b"/><text align="center" lang="ja">${shopName}&#10;</text><text align="center" lang="ja">テスト印刷&#10;</text><text align="center" lang="ja">${dateStr}&#10;</text><cut type="feed"/></epos-print></s:Body></s:Envelope>`;
   try{
-    const res = await fetch('/test-print/', {
+    const res = await fetch(printerUrl('/test-print/'), {
       method: 'POST',
       headers: {'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': '""'},
       body: xml,
     });
     showToast(res.ok?'テスト印刷しました':'印刷失敗: HTTP '+res.status);
   }catch(e){
-    showToast('印刷失敗: '+e.message,'error');
+    const hint = (location.protocol==='https:') ? '（お店のWi-Fi内で操作してください）' : '';
+    showToast('印刷失敗: '+e.message+hint,'error');
   }
 }
 
 async function saveShop(){
-  const fields=['name','address','tel','registrationNo','message'];
+  const fields=['name','address','tel','registrationNo','message','printerProxyUrl'];
   const data={};fields.forEach(k=>{data[k]=document.getElementById('shop-'+k)?.value||'';});
   confirmAction('店舗設定を保存しますか？', '保存する', async()=>{
     await sdb.upsert('settings',{key:'shop',value:JSON.stringify(data)});
@@ -1677,7 +1846,10 @@ function render(){
   const activeInUse=tables.filter(t=>t.status==='使用中').length;
   const waitingChk=tables.filter(t=>t.status==='会計待ち').length;
 
-  const NAV=[
+  const NAV = STATE.viewOnly ? [
+    {k:'sales',l:'📊 売上'},
+    {k:'cash',l:'💴 レジ金'},
+  ] : [
     {k:'tables',l:'🪑 テーブル'},
     {k:'orderList',l:'📝 注文一覧',dot:pendingOrders},
     {k:'menu',l:'📋 メニュー'},
@@ -1731,9 +1903,25 @@ function render(){
   document.getElementById('app').innerHTML=header+`<main>${mainHTML}</main><div id="toast-area"></div>`;
   // メニュー管理画面ならドラッグ&ドロップを初期化
   if(STATE.view==='menu') requestAnimationFrame(initMenuSort);
+  // レジ金画面を開いている間は、日付またぎ等に自動追従できるよう定期的に再描画する
+  scheduleAutoRefresh();
+}
+
+let _autoRefreshTimer = null;
+function scheduleAutoRefresh(){
+  if(_autoRefreshTimer){ clearInterval(_autoRefreshTimer); _autoRefreshTimer=null; }
+  if(STATE.view==='cash'){
+    _autoRefreshTimer = setInterval(()=>{
+      // 入力中の欄にフォーカスがあるときは邪魔しないようスキップする
+      const active = document.activeElement;
+      const isTyping = active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA');
+      if(!isTyping) render();
+    }, 60000);
+  }
 }
 
 function setView(v){
+  if(STATE.viewOnly && !['sales','cash'].includes(v)) return;
   if(!['order','checkout'].includes(v))STATE.selId=null;
   STATE.view=v;render();
 }
@@ -1742,6 +1930,10 @@ function setView(v){
 // 起動
 // ═══════════════════════════════════════════
 window.addEventListener('load',async()=>{
+  // URLパラメータで閲覧専用モードを判定（例: pos.html?viewonly=1）
+  const params = new URLSearchParams(window.location.search);
+  STATE.viewOnly = params.get('viewonly') === '1';
+
   const url=localStorage.getItem('supa_url');
   const key=localStorage.getItem('supa_key');
   if(url&&key){
@@ -1749,9 +1941,9 @@ window.addEventListener('load',async()=>{
       SURL=url; SKEY=key;
       const res=await fetch(`${url}/rest/v1/settings?select=key&limit=1`,{headers:{'apikey':key,'Authorization':'Bearer '+key,'Accept':'application/json'}});
       if(!res.ok) throw new Error('auth failed');
-      STATE.loading=true; STATE.view='tables'; render();
+      STATE.loading=true; STATE.view=STATE.viewOnly?'sales':'tables'; render();
       await loadAll();
-      startRealtime();
+      if(!STATE.viewOnly) startRealtime();
       STATE.loading=false; render();
     }catch{SURL='';SKEY='';STATE.view='connect';render();}
   }else{STATE.view='connect';render();}
