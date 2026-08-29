@@ -959,12 +959,14 @@ function viewSales(){
 
   function hbar(label,value,maxVal,sub,color='#f5a623',lw=90){
     const pct=maxVal>0?(value/maxVal)*100:0;
+    const showInside = pct > 28; // バー内に金額を収められる十分な幅があるか
     return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
       <span style="color:#9ca3af;font-size:12px;width:${lw}px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>
-      <div style="flex:1;background:#22263a;border-radius:6px;height:22px;overflow:hidden;">
+      <div style="flex:1;background:#22263a;border-radius:6px;height:22px;overflow:hidden;position:relative;">
         <div style="width:${pct}%;background:linear-gradient(90deg,${color},${color}99);height:100%;border-radius:6px;display:flex;align-items:center;padding-left:${pct>15?8:0}px;min-width:${value>0?4:0}px;">
-          ${pct>18?`<span style="color:#0f1117;font-size:11px;font-weight:700;white-space:nowrap;">${fmt(value)}</span>`:''}
+          ${showInside?`<span style="color:#0f1117;font-size:11px;font-weight:700;white-space:nowrap;">${fmt(value)}</span>`:''}
         </div>
+        ${(!showInside&&value>0)?`<span style="position:absolute;left:calc(${pct}% + 8px);top:50%;transform:translateY(-50%);color:#e8eaf0;font-size:11px;font-weight:700;white-space:nowrap;">${fmt(value)}</span>`:''}
       </div>
       <span style="color:#9ca3af;font-size:11px;width:46px;text-align:right;flex-shrink:0;">${sub}</span>
     </div>`;
