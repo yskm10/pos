@@ -602,7 +602,7 @@ function renderForm(ex){
           <button type="button" data-pay="クレジット" onclick="selectPay(this)">クレジット</button>
         </div>
       </div>
-      <button class="btn btn-stamp" onclick="confirmExpense()">確 認 して登録</button>
+      <button class="btn btn-stamp" id="confirmBtn" onclick="confirmExpense()">確 認 して登録</button>
     </div>`;
 }
 function selectPay(btn){
@@ -611,8 +611,10 @@ function selectPay(btn){
 }
 
 let pettyCashExpenseMode = false;
+let isSavingExpense = false;
 
 function confirmExpense(){
+  if(isSavingExpense) return;
   const pay = document.querySelector('.paytoggle button.sel').dataset.pay;
   const vendor = document.getElementById('f-vendor').value.trim();
   const category = document.getElementById('f-category').value;
@@ -623,6 +625,9 @@ function confirmExpense(){
     toast('日付・金額・支出先を確認してください');
     return;
   }
+  isSavingExpense = true;
+  const btn = document.getElementById('confirmBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '登録中...'; }
   saveExpenseToSupabase({date, amount, vendor, category, memo, payment: pay, hasReceipt: !!currentImageBase64});
 }
 
@@ -681,6 +686,7 @@ async function saveExpenseToSupabase(entry){
   }
   currentImageBase64 = null;
   pettyCashExpenseMode = false;
+  isSavingExpense = false;
   document.getElementById('previewArea').innerHTML = '';
   document.getElementById('formArea').innerHTML = '';
   document.getElementById('fileInput').value = '';
@@ -712,12 +718,15 @@ function openPettyForm(type){
       <div class="field"><label>日付</label><input type="date" id="petty-date" value="${new Date().toISOString().slice(0,10)}"></div>
       <div class="field"><label>金額</label><input type="number" id="petty-amount"></div>
       <div class="field"><label>摘要</label><input type="text" id="petty-memo" placeholder="${type==='入金' ? '例: 現金売上からの補充' : '例: レジ釣銭用'}"></div>
-      <button class="btn btn-stamp" onclick="submitPettyForm('${type}')">記録する</button>
+      <button class="btn btn-stamp" id="pettySubmitBtn" onclick="submitPettyForm('${type}')">記録する</button>
       <button class="btn btn-ghost" onclick="document.getElementById('pettyFormArea').innerHTML=''">キャンセル</button>
     </div>`;
 }
 
+let isSavingPetty = false;
+
 async function submitPettyForm(type){
+  if(isSavingPetty) return;
   const date = document.getElementById('petty-date').value;
   const amount = Number(document.getElementById('petty-amount').value)||0;
   const memo = document.getElementById('petty-memo').value.trim();
@@ -725,6 +734,9 @@ async function submitPettyForm(type){
     toast('日付と金額を確認してください');
     return;
   }
+  isSavingPetty = true;
+  const btn = document.getElementById('pettySubmitBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '記録中...'; }
   try{
     const { error } = await sb.from('petty_cash').insert([{ date, type, amount, memo }]);
     if(error) throw error;
@@ -733,6 +745,7 @@ async function submitPettyForm(type){
     console.error('petty cash insert failed', e);
     toast('記録に失敗しました: ' + (e.message||String(e)));
   }
+  isSavingPetty = false;
   document.getElementById('pettyFormArea').innerHTML = '';
   loadPettyCash();
 }
@@ -1194,7 +1207,7 @@ function renderImportPreview(){
         </div>
       `).join('')}
       <button class="btn btn-ghost" onclick="suggestCategoriesAI()">AIで科目を一括提案</button>
-      <button class="btn btn-stamp" onclick="commitImport()">選択した項目を登録</button>
+      <button class="btn btn-stamp" id="commitImportBtn" onclick="commitImport()">選択した項目を登録</button>
     </div>`;
 }
 
@@ -1246,13 +1259,19 @@ ${uniqueVendors.join('\n')}`
 function toggleImportRow(i, val){ currentImportRows[i].checked = val; }
 function updateImportCategory(i, val){ currentImportRows[i].category = val; }
 
+let isCommittingImport = false;
+
 async function commitImport(){
+  if(isCommittingImport) return;
   const isPersonal = importCardType==='personal';
   const toAdd = currentImportRows.filter(r=>r.checked && r.date && r.amount);
   if(toAdd.length===0){
     toast('登録する項目がありません(日付が読み取れているか確認してください)');
     return;
   }
+  isCommittingImport = true;
+  const btn = document.getElementById('commitImportBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '登録中...'; }
   const rows = toAdd.map(r=>({
     date: r.date, amount: r.amount, vendor: r.vendor, category: r.category,
     memo: isPersonal ? '個人カード立替' : 'コーポレートカード明細',
@@ -1274,6 +1293,7 @@ async function commitImport(){
     console.error('bulk insert failed', e);
     toast('登録に失敗しました: ' + (e.message||String(e)));
   }
+  isCommittingImport = false;
   currentImportRows = [];
   document.getElementById('importPreviewArea').innerHTML = '';
   document.getElementById('importMapArea').innerHTML = '';
