@@ -1102,10 +1102,13 @@ function viewCash(){
   const cashSalesToday=STATE.sales.filter(s=>businessDateStr(s.created_at||undefined)===today&&s.method==='現金').reduce((a,s)=>a+s.total,0);
   const isOpen=todayLog&&!todayLog.closed_at;
   const isClosed=todayLog&&todayLog.closed_at;
-  const transferNet=cs.transfers.reduce((s,t)=>t.type==='in'?s+t.amount:s-t.amount,0);
+  const totalOut=cs.transfers.filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+  const totalIn=cs.transfers.filter(t=>t.type==='in').reduce((s,t)=>s+t.amount,0);
+  const transferNet=totalIn-totalOut;
   const openAmt=todayLog?.open_amount||0;
   const expected=openAmt+cashSalesToday+transferNet;
-  const closeAmt=denomTotal(cs.closeCounts);
+  const countedTotal=denomTotal(cs.closeCounts); // 実査額：出金前・入金後の状態で数えた金額
+  const closeAmt=countedTotal-totalOut; // 最終残高：出金予定分を差し引いた金額（この値をDBに保存・翌日へ引き継ぐ）
   const diff=closeAmt-expected;
 
   function denomRows(counts,onChange){
@@ -1184,7 +1187,9 @@ function viewCash(){
         {label:'現金売上',value:fmt(cashSalesToday),color:'#4caf80'},
         {label:'レジ金移動',value:(transferNet>=0?'+':'')+fmt(Math.abs(transferNet)),color:'#6b7280'},
         {label:'理論残高',value:fmt(expected),color:'#f5a623'},
-        {label:'実査額',value:fmt(closeAmt),color:'#e8eaf0'},
+        {label:'カウント総額',value:fmt(countedTotal),color:'#e8eaf0'},
+        ...(totalOut>0?[{label:'　　└ 出金予定分を差引',value:'−'+fmt(totalOut),color:'#e05252'}]:[]),
+        {label:'最終残高',value:fmt(closeAmt),color:'#e8eaf0'},
       ].map(r=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;"><span style="color:#9ca3af;">${r.label}</span><span style="color:${r.color};font-weight:600;">${r.value}</span></div>`).join('');
 
       content=`
@@ -1206,13 +1211,14 @@ function viewCash(){
           ${cs.transfers.length>0?`<div style="border-top:1px solid #2e3250;padding-top:10px;">${txRows}</div>`:''}
         </div>
         <div class="card" style="border:1px solid rgba(245,166,35,.2);">
-          <div style="color:#e05252;font-weight:700;font-size:15px;margin-bottom:16px;">🌙 閉店 — レジ内現金を実査</div>
+          <div style="color:#e05252;font-weight:700;font-size:15px;margin-bottom:4px;">🌙 閉店 — レジ内現金を実査</div>
+          <div style="color:#6b7280;font-size:11px;margin-bottom:12px;">💡 出金・入金がある場合も、まずレジの中身を全部数えてください（出金予定分は自動で差し引かれます）</div>
           ${denomRows(cs.closeCounts,'updateCloseCount')}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
-            <span style="color:#e8eaf0;font-weight:700;font-size:15px;">合　計</span>
-            <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(closeAmt)}</span>
+            <span style="color:#e8eaf0;font-weight:700;font-size:15px;">カウント総額</span>
+            <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(countedTotal)}</span>
           </div>
-          ${closeAmt>0?`
+          ${countedTotal>0?`
             <div style="margin-top:16px;padding:16px;background:#22263a;border-radius:10px;">
               <div style="color:#e8eaf0;font-weight:700;font-size:14px;margin-bottom:12px;">過不足チェック</div>
               ${checkRows}
@@ -1221,7 +1227,7 @@ function viewCash(){
                 <span style="font-weight:900;font-size:26px;color:${diff===0?'#4caf80':diff>0?'#5b8ef5':'#e05252'};">${diff===0?'± 0':(diff>0?'+':'')+fmt(diff)}</span>
               </div>
             </div>`:''}
-          <button class="btn-danger" onclick="doCloseRegister()" style="width:100%;padding:12px 0;margin-top:14px;font-size:15px;" ${closeAmt===0?'disabled':''}>閉店処理を確定</button>
+          <button class="btn-danger" onclick="doCloseRegister()" style="width:100%;padding:12px 0;margin-top:14px;font-size:15px;" ${countedTotal===0?'disabled':''}>閉店処理を確定</button>
         </div>`;
       }
     }else if(isClosed){
@@ -1345,9 +1351,12 @@ async function doCloseRegister(){
   const today=todayStr();
   const todayLog=STATE.cashLogs.find(l=>l.date===today);
   if(!todayLog)return;
-  const closeAmt=denomTotal(cs.closeCounts);
+  const countedTotal=denomTotal(cs.closeCounts); // 数えた総額（出金前・入金後の状態）
+  const totalOut=cs.transfers.filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+  const totalIn=cs.transfers.filter(t=>t.type==='in').reduce((s,t)=>s+t.amount,0);
+  const closeAmt=countedTotal-totalOut; // 最終残高（出金予定分を差引済み。これを保存・翌日へ引き継ぐ）
   const cashSalesToday=STATE.sales.filter(s=>businessDateStr(s.created_at||undefined)===today&&s.method==='現金').reduce((a,s)=>a+s.total,0);
-  const transferNet=cs.transfers.reduce((s,t)=>t.type==='in'?s+t.amount:s-t.amount,0);
+  const transferNet=totalIn-totalOut;
   const expected=(todayLog.open_amount||0)+cashSalesToday+transferNet;
   const diff=closeAmt-expected;
   await sdb.update('cash_logs',[['date','eq',today]],{close_amount:closeAmt,close_counts:JSON.stringify(cs.closeCounts),cash_sales:cashSalesToday,transfer_net:transferNet,transfers_json:JSON.stringify(cs.transfers),diff,closed_at:new Date().toISOString()});
