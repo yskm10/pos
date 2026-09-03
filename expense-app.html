@@ -431,20 +431,24 @@ sb.auth.onAuthStateChange((event, session)=>{
 });
 
 // ---- data (Supabase) ----
+let vendorMasterNames = [];
 async function loadData(){
   try{
-    const [expRes, mapRes] = await Promise.all([
+    const [expRes, mapRes, vendorRes] = await Promise.all([
       sb.from('expenses').select('*').order('date', {ascending:false}).order('created_at', {ascending:false}),
-      sb.from('vendor_category_map').select('vendor,category')
+      sb.from('vendor_category_map').select('vendor,category'),
+      sb.from('vendors').select('name').eq('active', true).order('name')
     ]);
     if(expRes.error) throw expRes.error;
     if(mapRes.error) throw mapRes.error;
+    if(vendorRes.error) throw vendorRes.error;
     expenses = (expRes.data||[]).map(e=>({
       id: e.id, date: e.date, amount: Number(e.amount), vendor: e.vendor,
       category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt
     }));
     vendorMap = {};
     (mapRes.data||[]).forEach(v=>{ vendorMap[v.vendor] = v.category; });
+    vendorMasterNames = (vendorRes.data||[]).map(v=>v.name);
   }catch(e){
     console.error('loadData error', e);
     toast('データの読み込みに失敗しました: ' + (e.message||String(e)));
@@ -586,7 +590,10 @@ function renderForm(ex){
         <div class="field"><label>日付</label><input type="date" id="f-date" value="${ex.date||''}"></div>
         <div class="field"><label>金額</label><input type="number" id="f-amount" value="${ex.amount||''}"></div>
       </div>
-      <div class="field"><label>支出先</label><input type="text" id="f-vendor" value="${(ex.vendor||'').replace(/"/g,'&quot;')}"></div>
+      <div class="field"><label>支出先</label>
+        <input type="text" id="f-vendor" list="vendorList" value="${(ex.vendor||'').replace(/"/g,'&quot;')}">
+        <datalist id="vendorList">${vendorMasterNames.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      </div>
       <div class="field">
         <label>勘定科目</label>
         <select id="f-category">
