@@ -1089,7 +1089,7 @@ function viewSales(){
 // ═══════════════════════════════════════════
 function viewCash(){
   if(!window._cashState){
-    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',closeCounts:emptyDenoms(),transfers:[],txType:'out',txAmount:'',txNote:''};
+    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',openTransfers:[],openTxType:'out',openTxAmount:'',openTxNote:'',closeCounts:emptyDenoms(),transfers:[],txType:'out',txAmount:'',txNote:''};
   }
   const cs = window._cashState;
   const today=todayStr();
@@ -1143,19 +1143,59 @@ function viewCash(){
 
     if(!todayLog){
       const inheritMsg=prevLog?`<div style="color:#4caf80;font-size:12px;margin-bottom:14px;padding:8px 12px;background:rgba(76,175,128,.1);border-radius:8px;">✅ 前日（${prevLog.date}）の閉店額 <strong>${fmt(prevLog.close_amount)}</strong> を引き継ぎました</div>`:'';
+      const openCountedTotal=denomTotal(cs.openCounts);
+      const openTotalOut=(cs.openTransfers||[]).filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+      const openTotalIn=(cs.openTransfers||[]).filter(t=>t.type==='in').reduce((s,t)=>s+t.amount,0);
+      const openFinalAmount=openCountedTotal-openTotalOut;
+      const openTxRows=(cs.openTransfers||[]).map(t=>`
+        <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;">
+          <div style="display:flex;gap:10px;">
+            <span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span>
+            <span style="color:#e8eaf0;">${fmt(t.amount)}</span>
+            ${t.note?`<span style="color:#9ca3af;">${t.note}</span>`:''}
+          </div>
+          <button onclick="removeOpenTx(${t.id})" style="background:none;border:none;color:#e05252;font-size:16px;padding:0;">✕</button>
+        </div>`).join('');
       content=`
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">${kpis}</div>
         <div class="card" style="margin-bottom:16px;">
           <div style="color:#5b8ef5;font-weight:700;font-size:15px;margin-bottom:6px;">🌅 開店両替金を登録</div>
           ${inheritMsg}
+          <div style="color:#6b7280;font-size:11px;margin-bottom:12px;">💡 出金・入金がある場合も、まず両替金を全部数えてください（出金予定分は自動で差し引かれます）</div>
           ${denomRows(cs.openCounts,'updateOpenCount')}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
-            <span style="color:#e8eaf0;font-weight:700;font-size:15px;">合　計</span>
-            <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(denomTotal(cs.openCounts))}</span>
+            <span style="color:#e8eaf0;font-weight:700;font-size:15px;">カウント総額</span>
+            <span style="color:#f5a623;font-weight:900;font-size:22px;">${fmt(openCountedTotal)}</span>
           </div>
           ${STATE.viewOnly?'':`
+          <div style="margin-top:16px;padding:14px;background:#22263a;border-radius:10px;">
+            <div style="color:#e8eaf0;font-weight:700;font-size:13px;margin-bottom:10px;">💸 開店前のレジ金移動（任意）</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+              <div>
+                <div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">種別</div>
+                <div style="display:flex;gap:6px;">
+                  <button onclick="window._cashState.openTxType='out';render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${cs.openTxType==='out'?'#e05252':'#2e3250'};background:${cs.openTxType==='out'?'rgba(224,82,82,.13)':'transparent'};color:${cs.openTxType==='out'?'#e05252':'#9ca3af'};font-weight:700;font-size:12px;">▼ 出金</button>
+                  <button onclick="window._cashState.openTxType='in';render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${cs.openTxType==='in'?'#4caf80':'#2e3250'};background:${cs.openTxType==='in'?'rgba(76,175,128,.13)':'transparent'};color:${cs.openTxType==='in'?'#4caf80':'#9ca3af'};font-weight:700;font-size:12px;">▲ 入金</button>
+                </div>
+              </div>
+              <div style="flex:1;min-width:100px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">金額</div><input type="number" inputmode="numeric" min="0" id="open-tx-amount-input" value="${cs.openTxAmount}" oninput="setOpenTxAmount(this.value)" placeholder="0"></div>
+              <div style="flex:2;min-width:120px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">メモ</div><input value="${cs.openTxNote}" oninput="window._cashState.openTxNote=this.value" placeholder="例: 両替追加"></div>
+              <button class="btn-ghost" onclick="addOpenTx()" style="padding:7px 14px;font-size:13px;" ${!cs.openTxAmount||!isFinite(Number(cs.openTxAmount))||Number(cs.openTxAmount)<=0?'disabled':''}>追加</button>
+            </div>
+            ${(cs.openTransfers||[]).length>0?`<div style="border-top:1px solid #2e3250;padding-top:8px;">${openTxRows}</div>`:''}
+          </div>`}
+          ${(openTotalOut>0)?`
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid #2e3250;">
+            <span style="color:#9ca3af;font-size:13px;">出金予定分を差引</span>
+            <span style="color:#e05252;font-weight:600;font-size:14px;">−${fmt(openTotalOut)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+            <span style="color:#e8eaf0;font-weight:800;font-size:15px;">開店金額（最終）</span>
+            <span style="color:#5b8ef5;font-weight:900;font-size:20px;">${fmt(openFinalAmount)}</span>
+          </div>`:''}
+          ${STATE.viewOnly?'':`
           <input placeholder="メモ（任意）" value="${cs.openNote}" oninput="window._cashState.openNote=this.value" style="margin-top:12px;">
-          <button class="btn-primary" onclick="doOpenRegister()" style="width:100%;padding:12px 0;margin-top:14px;" ${denomTotal(cs.openCounts)===0?'disabled':''}>開店記録を登録</button>`}
+          <button class="btn-primary" onclick="doOpenRegister()" style="width:100%;padding:12px 0;margin-top:14px;" ${openCountedTotal===0?'disabled':''}>開店記録を登録</button>`}
         </div>`;
     }else if(isOpen){
       if(STATE.viewOnly){
@@ -1250,6 +1290,7 @@ function viewCash(){
         </div>`;
     }
   }else{
+    if(!window._cashHistoryOpen) window._cashHistoryOpen={};
     const logs=[...STATE.cashLogs].sort((a,b)=>b.date.localeCompare(a.date));
     content=logs.length===0?'<div class="card"><div style="color:#6b7280;font-size:14px;">まだ記録がありません</div></div>':logs.map(log=>{
       const isClosedLog = !!log.closed_at;
@@ -1257,6 +1298,26 @@ function viewCash(){
       const statusBadge = isClosedLog
         ? `<span style="display:inline-flex;align-items:center;gap:4px;color:#e05252;font-size:11px;font-weight:700;background:rgba(224,82,82,.13);padding:3px 9px;border-radius:99px;">🌙 閉店済み</span>`
         : `<span style="display:inline-flex;align-items:center;gap:4px;color:#f5a623;font-size:11px;font-weight:700;background:rgba(245,166,35,.13);padding:3px 9px;border-radius:99px;">🌅 営業中</span>`;
+
+      const isOpenDetail = !!window._cashHistoryOpen[log.date];
+      let openTransfersLog=[], closeTransfersLog=[];
+      try{ openTransfersLog=JSON.parse(log.open_transfers_json||'[]'); }catch(e){}
+      try{ closeTransfersLog=JSON.parse(log.transfers_json||'[]'); }catch(e){}
+      const hasDetail = !!(log.note || openTransfersLog.length>0 || closeTransfersLog.length>0);
+
+      const txLine = t => `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;">
+          <span><span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span> <span style="color:#e8eaf0;">${fmt(t.amount)}</span></span>
+          ${t.note?`<span style="color:#9ca3af;">${t.note}</span>`:''}
+        </div>`;
+
+      const detailBlock = isOpenDetail ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #2e3250;">
+          ${log.note?`<div style="color:#9ca3af;font-size:12px;margin-bottom:8px;">📝 メモ: <span style="color:#e8eaf0;">${log.note}</span></div>`:''}
+          ${openTransfersLog.length>0?`<div style="margin-bottom:8px;"><div style="color:#5b8ef5;font-size:11px;font-weight:700;margin-bottom:4px;">開店時のレジ金移動</div>${openTransfersLog.map(txLine).join('')}</div>`:''}
+          ${closeTransfersLog.length>0?`<div><div style="color:#e05252;font-size:11px;font-weight:700;margin-bottom:4px;">閉店時のレジ金移動</div>${closeTransfersLog.map(txLine).join('')}</div>`:''}
+          ${!hasDetail?`<div style="color:#6b7280;font-size:12px;">詳細情報はありません</div>`:''}
+        </div>` : '';
+
       return `
       <div class="card" style="margin-bottom:10px;border-left:3px solid ${borderColor};">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -1272,6 +1333,8 @@ function viewCash(){
           </div>
           ${isClosedLog?`<div style="text-align:right;"><div style="font-size:11px;color:#9ca3af;margin-bottom:2px;">過不足</div><div style="font-weight:900;font-size:22px;color:${log.diff===0?'#4caf80':log.diff>0?'#5b8ef5':'#e05252'};">${log.diff===0?'± 0':(log.diff>0?'+':'')+fmt(log.diff)}</div></div>`:''}
         </div>
+        <button onclick="toggleCashHistoryDetail('${log.date}')" style="background:none;border:none;color:#6b7280;font-size:12px;padding:6px 0 0;cursor:pointer;">${isOpenDetail?'▲ 詳細を閉じる':'▼ 詳細・メモを見る'}</button>
+        ${detailBlock}
       </div>`;
     }).join('');
   }
@@ -1317,6 +1380,27 @@ function setTxAmount(v){
     }
   }
 }
+function setOpenTxAmount(v){
+  window._cashState.openTxAmount = v;
+  const el = document.getElementById('open-tx-amount-input');
+  const selStart = el ? el.selectionStart : null;
+  const selEnd   = el ? el.selectionEnd   : null;
+  const hadFocus = el ? (document.activeElement===el) : false;
+  render();
+  if(hadFocus){
+    const newEl = document.getElementById('open-tx-amount-input');
+    if(newEl){
+      newEl.focus();
+      try{ newEl.setSelectionRange(selStart, selEnd); }catch(e){}
+    }
+  }
+}
+function toggleCashHistoryDetail(date){
+  if(!window._cashHistoryOpen) window._cashHistoryOpen={};
+  window._cashHistoryOpen[date] = !window._cashHistoryOpen[date];
+  render();
+}
+
 function addTx(){
   if(STATE.viewOnly) return;
   const cs=window._cashState;
@@ -1325,13 +1409,25 @@ function addTx(){
   cs.transfers.push({id:Date.now(),type:cs.txType,amount:n,note:cs.txNote});
   cs.txAmount='';cs.txNote='';render();
 }
+function addOpenTx(){
+  if(STATE.viewOnly) return;
+  const cs=window._cashState;
+  const n=Number(cs.openTxAmount);
+  if(!cs.openTxAmount||!isFinite(n)||n<=0)return;
+  cs.openTransfers.push({id:Date.now(),type:cs.openTxType,amount:n,note:cs.openTxNote});
+  cs.openTxAmount='';cs.openTxNote='';render();
+}
 function removeTx(id){
   if(STATE.viewOnly) return;window._cashState.transfers=window._cashState.transfers.filter(t=>t.id!==id);render();}
+function removeOpenTx(id){
+  if(STATE.viewOnly) return;window._cashState.openTransfers=window._cashState.openTransfers.filter(t=>t.id!==id);render();}
 async function doOpenRegister(){
   if(STATE.viewOnly) return;
   const cs=window._cashState;
-  const amount=denomTotal(cs.openCounts);if(amount===0)return;
-  await sdb.insert('cash_logs',{date:todayStr(),open_amount:amount,open_counts:JSON.stringify(cs.openCounts),note:cs.openNote,opened_at:new Date().toISOString()});
+  const countedTotal=denomTotal(cs.openCounts);if(countedTotal===0)return;
+  const totalOut=(cs.openTransfers||[]).filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+  const amount=countedTotal-totalOut; // 出金予定分を差し引いた最終的な開店金額
+  await sdb.insert('cash_logs',{date:todayStr(),open_amount:amount,open_counts:JSON.stringify(cs.openCounts),note:cs.openNote,open_transfers_json:JSON.stringify(cs.openTransfers||[]),opened_at:new Date().toISOString()});
   const r=await sdb.get('cash_logs',[],'date.desc');
   if(Array.isArray(r))STATE.cashLogs=r;
   render();
@@ -1381,7 +1477,7 @@ async function reopenRegister(){
     const r = await sdb.get('cash_logs',[],'date.desc');
     if(Array.isArray(r)) STATE.cashLogs=r;
     // レジ金入力状態をリセットしつつ、入出金履歴だけ復元して営業中画面に戻す
-    window._cashState = {tab:'today',openCounts:emptyDenoms(),openNote:'',closeCounts:emptyDenoms(),transfers:restoredTransfers,txType:'out',txAmount:'',txNote:'',_inheritDone:true};
+    window._cashState = {tab:'today',openCounts:emptyDenoms(),openNote:'',openTransfers:[],openTxType:'out',openTxAmount:'',openTxNote:'',closeCounts:emptyDenoms(),transfers:restoredTransfers,txType:'out',txAmount:'',txNote:'',_inheritDone:true};
     showToast('閉店を取り消しました。営業中の状態に戻りました');
     render();
   });
