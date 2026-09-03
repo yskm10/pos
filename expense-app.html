@@ -139,6 +139,14 @@
     font-family:'JetBrains Mono',monospace;color:var(--ink);
   }
   .field select{font-family:'Noto Sans JP',sans-serif;}
+  .vendor-suggest{
+    position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--white);
+    border:1px solid var(--line);max-height:180px;overflow-y:auto;z-index:20;
+    box-shadow:0 4px 10px rgba(0,0,0,.1);
+  }
+  .vendor-suggest-item{padding:9px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line);font-family:'Noto Sans JP',sans-serif;}
+  .vendor-suggest-item:last-child{border-bottom:none;}
+  .vendor-suggest-item:active{background:var(--paper);}
   .field .learned{
     font-size:10px;color:var(--sage);margin-top:3px;font-family:'Noto Sans JP',sans-serif;
   }
@@ -467,6 +475,27 @@ async function upsertVendorMap(vendor, category){
   }
 }
 
+// ---- 支出先の候補(仕入先マスタ) ----
+// iOS Safariはdatalistの候補表示に対応していないため、自前で候補リストを出す
+function filterVendorSuggestions(val){
+  const box = document.getElementById('vendorSuggestions');
+  if(!box) return;
+  const q = (val||'').trim();
+  const matches = vendorMasterNames.filter(n=>!q || n.includes(q)).slice(0,20);
+  if(matches.length===0){ box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML = matches.map(n=>`<div class="vendor-suggest-item" onmousedown="selectVendorSuggestion('${n.replace(/'/g,"\\'")}')">${escapeHtml(n)}</div>`).join('');
+  box.style.display='block';
+}
+function selectVendorSuggestion(name){
+  const input = document.getElementById('f-vendor');
+  if(input) input.value = name;
+  hideVendorSuggestions();
+}
+function hideVendorSuggestions(){
+  const box = document.getElementById('vendorSuggestions');
+  if(box) box.style.display='none';
+}
+
 // ---- tabs ----
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click', ()=>{
@@ -590,9 +619,11 @@ function renderForm(ex){
         <div class="field"><label>日付</label><input type="date" id="f-date" value="${ex.date||''}"></div>
         <div class="field"><label>金額</label><input type="number" id="f-amount" value="${ex.amount||''}"></div>
       </div>
-      <div class="field"><label>支出先</label>
-        <input type="text" id="f-vendor" list="vendorList" value="${(ex.vendor||'').replace(/"/g,'&quot;')}">
-        <datalist id="vendorList">${vendorMasterNames.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <div class="field" style="position:relative;"><label>支出先</label>
+        <input type="text" id="f-vendor" autocomplete="off" value="${(ex.vendor||'').replace(/"/g,'&quot;')}"
+          oninput="filterVendorSuggestions(this.value)" onfocus="filterVendorSuggestions(this.value)"
+          onblur="setTimeout(hideVendorSuggestions,150)">
+        <div id="vendorSuggestions" class="vendor-suggest" style="display:none;"></div>
       </div>
       <div class="field">
         <label>勘定科目</label>
