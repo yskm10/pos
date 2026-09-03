@@ -196,21 +196,21 @@
   .sum-total{display:flex;justify-content:space-between;padding-top:10px;margin-top:4px;border-top:2px solid var(--ink);font-weight:700;font-size:15px;}
   .sum-total span:last-child{font-family:'JetBrains Mono',monospace;}
 
-  .sum-row-3{
-    display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;
+  .sum-row-4{
+    display:grid;grid-template-columns:1.1fr 0.9fr 0.9fr 0.9fr 1fr;
     gap:4px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px;
   }
-  .sum-row-3:last-child{border-bottom:none;}
-  .sum-row-3 span:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;}
-  .sum-row-3-head{
+  .sum-row-4:last-child{border-bottom:none;}
+  .sum-row-4 span:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;}
+  .sum-row-4-head{
     font-size:10px;color:var(--ink-soft);letter-spacing:.05em;font-weight:700;
     border-bottom:2px solid var(--ink);padding-bottom:6px;
   }
-  .sum-row-3-head span:not(:first-child){font-family:'Noto Sans JP',sans-serif;}
-  .sum-row-3-total{
+  .sum-row-4-head span:not(:first-child){font-family:'Noto Sans JP',sans-serif;}
+  .sum-row-4-total{
     border-top:2px solid var(--ink);border-bottom:none;margin-top:2px;padding-top:9px;font-weight:700;font-size:13px;
   }
-  .sum-row-3-total span:not(:first-child){font-size:12px;}
+  .sum-row-4-total span:not(:first-child){font-size:12px;}
 
   .toast{
     position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
@@ -600,6 +600,7 @@ function renderForm(ex){
         <div class="paytoggle">
           <button type="button" class="sel" data-pay="現金" onclick="selectPay(this)">現金</button>
           <button type="button" data-pay="クレジット" onclick="selectPay(this)">クレジット</button>
+          <button type="button" data-pay="振込" onclick="selectPay(this)">振込</button>
         </div>
       </div>
       <button class="btn btn-stamp" id="confirmBtn" onclick="confirmExpense()">確 認 して登録</button>
@@ -905,23 +906,24 @@ function renderSummary(){
     return;
   }
   const byCat = {};
-  let cashTotal=0, creditTotal=0;
+  let cashTotal=0, creditTotal=0, transferTotal=0;
   monthExp.forEach(e=>{
-    if(!byCat[e.category]) byCat[e.category] = {cash:0, credit:0};
+    if(!byCat[e.category]) byCat[e.category] = {cash:0, credit:0, transfer:0};
     if(e.payment==='現金'){ byCat[e.category].cash += e.amount; cashTotal += e.amount; }
+    else if(e.payment==='振込'){ byCat[e.category].transfer += e.amount; transferTotal += e.amount; }
     else { byCat[e.category].credit += e.amount; creditTotal += e.amount; }
   });
-  const total = cashTotal + creditTotal;
-  const rows = Object.entries(byCat).sort((a,b)=>(b[1].cash+b[1].credit)-(a[1].cash+a[1].credit));
+  const total = cashTotal + creditTotal + transferTotal;
+  const rows = Object.entries(byCat).sort((a,b)=>(b[1].cash+b[1].credit+b[1].transfer)-(a[1].cash+a[1].credit+a[1].transfer));
 
   let html = `<div class="sum-block">
-    <div class="sum-title">勘定科目別(現金 / クレジット / 合計)</div>
-    <div class="sum-row-3 sum-row-3-head"><span>科目</span><span>現金</span><span>クレジット</span><span>合計</span></div>`;
+    <div class="sum-title">勘定科目別(現金 / クレジット / 振込 / 合計)</div>
+    <div class="sum-row-4 sum-row-4-head"><span>科目</span><span>現金</span><span>クレジット</span><span>振込</span><span>合計</span></div>`;
   rows.forEach(([cat, v])=>{
-    const t = v.cash + v.credit;
-    html += `<div class="sum-row-3"><span>${cat}</span><span>¥${v.cash.toLocaleString()}</span><span>¥${v.credit.toLocaleString()}</span><span>¥${t.toLocaleString()}</span></div>`;
+    const t = v.cash + v.credit + v.transfer;
+    html += `<div class="sum-row-4"><span>${cat}</span><span>¥${v.cash.toLocaleString()}</span><span>¥${v.credit.toLocaleString()}</span><span>¥${v.transfer.toLocaleString()}</span><span>¥${t.toLocaleString()}</span></div>`;
   });
-  html += `<div class="sum-row-3 sum-row-3-total"><span>合計</span><span>¥${cashTotal.toLocaleString()}</span><span>¥${creditTotal.toLocaleString()}</span><span>¥${total.toLocaleString()}</span></div>`;
+  html += `<div class="sum-row-4 sum-row-4-total"><span>合計</span><span>¥${cashTotal.toLocaleString()}</span><span>¥${creditTotal.toLocaleString()}</span><span>¥${transferTotal.toLocaleString()}</span><span>¥${total.toLocaleString()}</span></div>`;
   html += `</div>`;
   area.innerHTML = html;
 }
