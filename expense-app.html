@@ -147,6 +147,10 @@
   .vendor-suggest-item{padding:9px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line);font-family:'Noto Sans JP',sans-serif;}
   .vendor-suggest-item:last-child{border-bottom:none;}
   .vendor-suggest-item:active{background:var(--paper);}
+  .list-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .list-filter button{padding:6px 12px;border:1px solid var(--line);background:var(--white);border-radius:14px;
+    font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;}
+  .list-filter button.sel{background:var(--ink);color:var(--paper);border-color:var(--ink);}
   .field .learned{
     font-size:10px;color:var(--sage);margin-top:3px;font-family:'Noto Sans JP',sans-serif;
   }
@@ -299,6 +303,13 @@
 
   <!-- 一覧パネル -->
   <div class="panel" id="panel-list">
+    <div class="list-filter" id="listFilterBar">
+      <button class="sel" data-f="all" onclick="setListFilter('all')">すべて</button>
+      <button data-f="petty" onclick="setListFilter('petty')">小口現金</button>
+      <button data-f="cash" onclick="setListFilter('cash')">現金</button>
+      <button data-f="card" onclick="setListFilter('card')">カード</button>
+      <button data-f="transfer" onclick="setListFilter('transfer')">振込</button>
+    </div>
     <div id="listArea"><div class="empty">まだ登録された経費がありません</div></div>
   </div>
 
@@ -664,6 +675,11 @@ function confirmExpense(){
     toast('日付・金額・支出先を確認してください');
     return;
   }
+  const dup = expenses.find(e=> e.date===date && e.amount===amount && e.vendor===vendor);
+  if(dup){
+    const ok = confirm(`同じ内容の経費が既に登録されています。\n\n${date} ・ ${vendor} ・ ¥${amount.toLocaleString()}\n\n二重登録の可能性があります。それでも登録しますか？`);
+    if(!ok) return;
+  }
   isSavingExpense = true;
   const btn = document.getElementById('confirmBtn');
   if(btn){ btn.disabled = true; btn.textContent = '登録中...'; }
@@ -861,13 +877,25 @@ async function deletePettyCash(id, linkedExpenseId, hasReceipt){
 }
 
 
+let listFilter = 'all';
+function isPettyExpense(e){ return (e.memo||'').includes('小口現金'); }
+function setListFilter(f){
+  listFilter = f;
+  document.querySelectorAll('#listFilterBar button').forEach(b=>b.classList.toggle('sel', b.dataset.f===f));
+  renderList();
+}
 function renderList(){
   const area = document.getElementById('listArea');
-  if(expenses.length===0){
-    area.innerHTML = '<div class="empty">まだ登録された経費がありません</div>';
+  let list = expenses;
+  if(listFilter==='petty') list = expenses.filter(isPettyExpense);
+  else if(listFilter==='cash') list = expenses.filter(e=>!isPettyExpense(e) && e.payment==='現金');
+  else if(listFilter==='card') list = expenses.filter(e=>!isPettyExpense(e) && e.payment==='クレジット');
+  else if(listFilter==='transfer') list = expenses.filter(e=>!isPettyExpense(e) && e.payment==='振込');
+  if(list.length===0){
+    area.innerHTML = `<div class="empty">${expenses.length===0?'まだ登録された経費がありません':'該当する経費がありません'}</div>`;
     return;
   }
-  area.innerHTML = expenses.map(e=>`
+  area.innerHTML = list.map(e=>`
     <div class="receipt">
       <div class="stamp-mark">確認済</div>
       <div class="receipt-top">
