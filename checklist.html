@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>開店・閉店チェックリスト</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card-bg: #ffffff;
+    --text: #1a1a1a;
+    --text-sub: #6b7280;
+    --border: #e5e7eb;
+    --open-color: #2563eb;
+    --open-bg: #eaf1fe;
+    --close-color: #dc2626;
+    --close-bg: #fdecec;
+    --check-bg: #16a34a;
+    --check-text: #ffffff;
+    --pill-bg: #eef0f3;
+    --shadow: 0 1px 2px rgba(0,0,0,0.05);
+    --font: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121316;
+      --card-bg: #1c1e22;
+      --text: #f2f2f2;
+      --text-sub: #9aa0a6;
+      --border: #2c2f34;
+      --open-bg: #17243f;
+      --close-bg: #3a1c1c;
+      --pill-bg: #26282c;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121316;
+    --card-bg: #1c1e22;
+    --text: #f2f2f2;
+    --text-sub: #9aa0a6;
+    --border: #2c2f34;
+    --open-bg: #17243f;
+    --close-bg: #3a1c1c;
+    --pill-bg: #26282c;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    padding-bottom: 40px;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 12px 12px 24px; }
+
+  header.top {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg);
+    padding: 10px 0 6px;
+  }
+  h1 { font-size: 17px; margin: 0 0 8px; text-align: center; }
+
+  .date-nav {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 8px 10px; box-shadow: var(--shadow);
+  }
+  .date-nav button.arrow {
+    border: none; background: var(--pill-bg); color: var(--text);
+    width: 34px; height: 34px; border-radius: 50%; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .date-nav .datebox { display: flex; flex-direction: column; align-items: center; min-width: 140px; }
+  .date-nav .datebox .weekday { font-size: 12px; color: var(--text-sub); }
+  .date-nav .datebox .day { font-size: 16px; font-weight: 700; }
+  .date-nav input[type="date"] {
+    border: none; background: transparent; color: var(--text); font-size: 13px;
+    text-align: center; width: 100%;
+  }
+  .today-btn {
+    display: block; margin: 8px auto 0; font-size: 12px; color: var(--open-color);
+    background: none; border: none; padding: 4px 8px;
+  }
+
+  .section { margin-top: 18px; }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 4px 8px;
+  }
+  .section-head .label {
+    display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px;
+  }
+  .badge { width: 8px; height: 8px; border-radius: 50%; }
+  .badge.open { background: var(--open-color); }
+  .badge.close { background: var(--close-color); }
+  .progress-pill {
+    font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    background: var(--pill-bg); color: var(--text-sub);
+  }
+  .progress-pill.done { background: var(--check-bg); color: var(--check-text); }
+
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+  }
+  .item.checked { opacity: 0.6; }
+  .checkbox {
+    flex: 0 0 26px; width: 26px; height: 26px; border-radius: 8px;
+    border: 2px solid var(--border); display: flex; align-items: center; justify-content: center;
+    font-size: 15px; color: transparent; transition: all .12s ease;
+  }
+  .item.open .checkbox.on { background: var(--open-color); border-color: var(--open-color); color: #fff; }
+  .item.close .checkbox.on { background: var(--close-color); border-color: var(--close-color); color: #fff; }
+  .item-text { flex: 1; font-size: 14.5px; line-height: 1.4; }
+  .item.checked .item-text { text-decoration: line-through; color: var(--text-sub); }
+
+  .section.open .section-head .label { color: var(--open-color); }
+  .section.close .section-head .label { color: var(--close-color); }
+
+  .status-line {
+    text-align: center; font-size: 12px; color: var(--text-sub); margin-top: 18px;
+  }
+  .offline-note {
+    text-align: center; font-size: 12px; color: #b45309; margin-top: 8px;
+    display: none;
+  }
+
+  .tabs {
+    display: flex; gap: 6px; background: var(--pill-bg); border-radius: 12px;
+    padding: 4px; margin-top: 10px;
+  }
+  .tabs button {
+    flex: 1; border: none; background: transparent; color: var(--text-sub);
+    font-size: 13px; font-weight: 700; padding: 8px 0; border-radius: 9px;
+  }
+  .tabs button.active { background: var(--card-bg); color: var(--text); box-shadow: var(--shadow); }
+
+  .month-nav {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    margin: 14px 0 6px;
+  }
+  .month-nav button.arrow {
+    border: none; background: var(--pill-bg); color: var(--text);
+    width: 34px; height: 34px; border-radius: 50%; font-size: 16px;
+  }
+  .month-nav .month-label { font-size: 16px; font-weight: 700; min-width: 110px; text-align: center; }
+
+  .month-summary {
+    display: flex; justify-content: center; gap: 18px; font-size: 12px; color: var(--text-sub);
+    margin-bottom: 10px;
+  }
+  .month-summary .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+  .day-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; box-shadow: var(--shadow);
+  }
+  .day-row .day-num { width: 44px; text-align: center; }
+  .day-row .day-num .n { font-size: 15px; font-weight: 700; }
+  .day-row .day-num .w { font-size: 10px; color: var(--text-sub); }
+  .day-row.weekend-sat .day-num .w { color: #2563eb; }
+  .day-row.weekend-sun .day-num .w { color: #dc2626; }
+  .day-row .bars { flex: 1; display: flex; gap: 6px; }
+  .mini-pill {
+    flex: 1; text-align: center; font-size: 11px; font-weight: 700; padding: 6px 4px;
+    border-radius: 8px; background: var(--pill-bg); color: var(--text-sub);
+  }
+  .mini-pill.open-done { background: var(--open-bg); color: var(--open-color); }
+  .mini-pill.close-done { background: var(--close-bg); color: var(--close-color); }
+  .day-row.future { opacity: 0.45; }
+
+  .hidden { display: none !important; }
+
+  .lock-banner {
+    display: flex; align-items: center; gap: 8px;
+    background: #fff7e6; color: #92650a; border: 1px solid #f5deb3;
+    border-radius: 12px; padding: 10px 14px; font-size: 12.5px; font-weight: 600;
+    margin: 12px 0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .lock-banner { background: #2e2410; color: #f0c674; border-color: #4a3a17; }
+  }
+  :root[data-theme="dark"] .lock-banner { background: #2e2410; color: #f0c674; border-color: #4a3a17; }
+
+  .section-meta {
+    text-align: right; font-size: 11px; color: var(--text-sub); margin: -4px 4px 6px;
+  }
+  .item.locked { opacity: 0.55; }
+  .item.locked .checkbox { cursor: not-allowed; }
+
+  .item, .checkbox, .date-nav button, .tabs button, .today-btn,
+  .month-nav button, .day-row {
+    touch-action: manipulation;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>開店・閉店チェックリスト</h1>
+    <div class="date-nav">
+      <button class="arrow" id="prevDay">‹</button>
+      <div class="datebox">
+        <div class="weekday" id="weekdayLabel">-</div>
+        <div class="day" id="dateLabel">-</div>
+        <input type="date" id="datePicker">
+      </div>
+      <button class="arrow" id="nextDay">›</button>
+      <button class="arrow" id="refreshBtn" title="最新の状態に更新">⟳</button>
+    </div>
+    <button class="today-btn" id="todayBtn">今日に戻る</button>
+
+    <div class="tabs">
+      <button id="tabDaily" class="active">日次</button>
+      <button id="tabMonth">月次</button>
+    </div>
+  </header>
+
+  <div id="dailyView">
+  <div class="lock-banner hidden" id="lockBanner">🔒 この日の記録は確定済みです(7:00を過ぎると自動的にロックされます)</div>
+
+  <section class="section open" id="openSection">
+    <div class="section-head">
+      <div class="label"><span class="badge open"></span>OPEN 開店チェック</div>
+      <div class="progress-pill" id="openProgress">0/0</div>
+    </div>
+    <div class="section-meta" id="openMeta"></div>
+    <div class="list" id="openList"></div>
+  </section>
+
+  <section class="section close" id="closeSection">
+    <div class="section-head">
+      <div class="label"><span class="badge close"></span>CLOSE 閉店チェック</div>
+      <div class="progress-pill" id="closeProgress">0/0</div>
+    </div>
+    <div class="section-meta" id="closeMeta"></div>
+    <div class="list" id="closeList"></div>
+  </section>
+
+  <div class="status-line" id="statusLine">読み込み中...</div>
+  <div class="offline-note" id="offlineNote">保存に接続できません。この端末では変更が反映されない場合があります。</div>
+  </div>
+
+  <div id="monthView" class="hidden">
+    <div class="month-nav">
+      <button class="arrow" id="prevMonth">‹</button>
+      <div class="month-label" id="monthLabel">-</div>
+      <button class="arrow" id="nextMonth">›</button>
+    </div>
+    <div class="month-summary">
+      <span><span class="dot" style="background:var(--open-color)"></span>開店 完了日数 <b id="openMonthCount">0</b>/<span id="monthDaysTotal">0</span></span>
+      <span><span class="dot" style="background:var(--close-color)"></span>閉店 完了日数 <b id="closeMonthCount">0</b>/<span id="monthDaysTotal2">0</span></span>
+    </div>
+    <div id="monthList"></div>
+    <div class="status-line" id="monthStatusLine"></div>
+  </div>
+</div>
+
+<script>
+const OPEN_ITEMS = [
+  "シャッター、棒外す",
+  "郵便物確認",
+  "電気、フロア換気扇点灯",
+  "表、フロア掃除",
+  "椅子チェック",
+  "トイレ掃除",
+  "カウンター、テーブル拭き",
+  "テーブル備品補充",
+  "納品チェック",
+  "レジチェック",
+  "ダスター洗浄",
+  "生樽洗浄",
+  "ドリンク、食材補充",
+  "メニュー作成",
+  "仕込み",
+  "エアコン、テレビ確認",
+  "ソーダ水セット",
+  "看板、ショーケース点灯"
+];
+
+const CLOSE_ITEMS = [
+  "フライヤーのカゴ洗浄",
+  "焼き台洗浄、注水",
+  "食洗器排水、洗浄",
+  "サーバー周り洗浄",
+  "ゴミ箱周り、キッチン床清掃",
+  "カウンター、テーブル拭き",
+  "ダスターをハイター漬ける",
+  "トイレのゴミ捨て、フタ閉め",
+  "排水口清掃",
+  "炭酸サーバー電源確認",
+  "レジ締め",
+  "ゴミ捨て",
+  "冷凍庫のドア閉め確認",
+  "ガスの元栓閉める",
+  "フライヤーの電源確認",
+  "発注",
+  "エアコン、テレビ消す",
+  "電気全て消す",
+  "トイレ扉、クローク扉解放",
+  "扉のロック確認",
+  "シャッター鍵閉め",
+  "油交換",
+  "指摘箇所清掃"
+];
+
+const WEEKDAYS = ["日","月","火","水","木","金","土"];
+
+// ---- Supabase接続設定 ----
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4cnljeGxjc2V0cGpmYndxeWJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTM1ODYsImV4cCI6MjA5NzQyOTU4Nn0.nYIZUrq7R2Bw2iI5bfbdES8WYyxH1V51tiQaiVRdhNA";
+const TABLE = "checklist_checks";
+
+function sbHeaders(extra) {
+  return Object.assign({
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type": "application/json",
+  }, extra || {});
+}
+
+async function sbGetOne(dateStr) {
+  const url = `${SUPABASE_URL}/rest/v1/${TABLE}?date=eq.${dateStr}&select=*`;
+  const res = await fetch(url, { headers: sbHeaders() });
+  if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text().catch(() => "")));
+  const rows = await res.json();
+  return rows[0] || null;
+}
+
+async function sbGetRange(startStr, endStr) {
+  const url = `${SUPABASE_URL}/rest/v1/${TABLE}?date=gte.${startStr}&date=lte.${endStr}&select=*&order=date.asc`;
+  const res = await fetch(url, { headers: sbHeaders() });
+  if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text().catch(() => "")));
+  return res.json();
+}
+
+async function sbUpsert(row) {
+  const url = `${SUPABASE_URL}/rest/v1/${TABLE}?on_conflict=date`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: sbHeaders({ Prefer: "resolution=merge-duplicates,return=representation" }),
+    body: JSON.stringify([row]),
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text().catch(() => "")));
+  return res.json();
+}
+
+let currentDate = businessDateStr(new Date());
+let currentDoc = { open: [], close: [] };
+const pendingToggle = new Set(); // 同一項目への短時間の二重タップを防ぐ
+
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+
+// POSと同じ基準: 営業日は 7:00〜翌6:59 とみなす。
+// 0:00〜6:59 の間は「前日の営業日」として扱う。
+function businessDateStr(d) {
+  const dt = new Date(d);
+  if (dt.getHours() < 7) {
+    dt.setDate(dt.getDate() - 1);
+  }
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth()+1).padStart(2,"0");
+  const day = String(dt.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+
+function isEditableDate(dateStr) {
+  return dateStr === businessDateStr(new Date());
+}
+
+function formatTime(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return "";
+  }
+}
+
+function formatLabel(dateStr) {
+  const [y,m,d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m-1, d);
+  return {
+    weekday: WEEKDAYS[dt.getDay()] + "曜日",
+    date: `${y}年${m}月${d}日`
+  };
+}
+
+function renderList(containerId, items, stateArr, kind, locked) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  items.forEach((text, i) => {
+    const checked = !!stateArr[i];
+    const row = document.createElement("div");
+    row.className = `item ${kind}` + (checked ? " checked" : "") + (locked ? " locked" : "");
+    row.innerHTML = `
+      <div class="checkbox ${checked ? 'on' : ''}">✓</div>
+      <div class="item-text">${text}</div>
+    `;
+    row.addEventListener("click", () => toggleItem(kind, i));
+    container.appendChild(row);
+  });
+}
+
+function renderProgress(kind, stateArr, total) {
+  const done = stateArr.filter(Boolean).length;
+  const el = document.getElementById(kind + "Progress");
+  el.textContent = `${done}/${total}`;
+  el.classList.toggle("done", done === total && total > 0);
+}
+
+function render() {
+  const openArr = (currentDoc.open || []).slice();
+  const closeArr = (currentDoc.close || []).slice();
+  const locked = !isEditableDate(currentDate);
+
+  document.getElementById("lockBanner").classList.toggle("hidden", !locked);
+
+  renderList("openList", OPEN_ITEMS, openArr, "open", locked);
+  renderList("closeList", CLOSE_ITEMS, closeArr, "close", locked);
+  renderProgress("open", openArr, OPEN_ITEMS.length);
+  renderProgress("close", closeArr, CLOSE_ITEMS.length);
+
+  const openMeta = document.getElementById("openMeta");
+  openMeta.textContent = currentDoc.openStartAt
+    ? `入力開始 ${formatTime(currentDoc.openStartAt)}`
+    : "";
+  const closeMeta = document.getElementById("closeMeta");
+  closeMeta.textContent = currentDoc.closeEndAt
+    ? `入力終了 ${formatTime(currentDoc.closeEndAt)}`
+    : "";
+}
+
+async function toggleItem(kind, index) {
+  const guardKey = kind + ":" + index;
+  if (pendingToggle.has(guardKey)) return; // 直前のタップをまだ処理中(ゴーストクリック等)は無視
+  pendingToggle.add(guardKey);
+  try {
+    await toggleItemInner(kind, index);
+  } finally {
+    setTimeout(() => pendingToggle.delete(guardKey), 450);
+  }
+}
+
+async function toggleItemInner(kind, index) {
+  if (!isEditableDate(currentDate)) {
+    const statusEl = document.getElementById("statusLine");
+    const original = statusEl.textContent;
+    statusEl.textContent = "🔒 この日はロック済みのため編集できません";
+    setTimeout(() => { statusEl.textContent = original; }, 1800);
+    return;
+  }
+
+  const items = kind === "open" ? OPEN_ITEMS : CLOSE_ITEMS;
+  const arr = (currentDoc[kind] || []).slice();
+  while (arr.length < items.length) arr.push(false);
+  arr[index] = !arr[index];
+
+  const updatedDoc = { ...currentDoc, [kind]: arr };
+
+  // 開店: 最初にどれか1項目がチェックされた時刻を「入力開始時刻」として一度だけ記録
+  if (kind === "open" && !currentDoc.openStartAt && arr.some(Boolean)) {
+    updatedDoc.openStartAt = new Date().toISOString();
+  }
+
+  // 閉店: 全項目が揃った時刻を「入力終了時刻」として記録。揃わなくなったら未確定に戻す
+  if (kind === "close") {
+    const nowComplete = arr.length === CLOSE_ITEMS.length && arr.every(Boolean);
+    updatedDoc.closeEndAt = nowComplete ? new Date().toISOString() : null;
+  }
+
+  const previousDoc = currentDoc; // 失敗時に元へ戻せるよう保持
+  currentDoc = updatedDoc;
+  render();
+
+  try {
+    const row = {
+      date: currentDate,
+      open: updatedDoc.open || [],
+      close: updatedDoc.close || [],
+      open_start_at: updatedDoc.openStartAt || null,
+      close_end_at: updatedDoc.closeEndAt || null,
+      updated_at: new Date().toISOString(),
+    };
+    await sbUpsert(row);
+    document.getElementById("offlineNote").style.display = "none";
+  } catch (e) {
+    // 保存に失敗した場合は表示も元に戻し、正直に失敗を伝える(見えないまま巻き戻ることを防ぐ)
+    currentDoc = previousDoc;
+    render();
+    const note = document.getElementById("offlineNote");
+    note.textContent = "保存に失敗しました: " + (e && e.message ? e.message : String(e));
+    note.style.display = "block";
+  }
+}
+
+async function loadDate(dateStr, { silent } = {}) {
+  if (!silent) {
+    document.getElementById("statusLine").textContent = "読み込み中...";
+  }
+  try {
+    const row = await sbGetOne(dateStr);
+    if (dateStr !== currentDate) return; // 読み込み中に別の日に移動していたら破棄
+    if (row) {
+      currentDoc = {
+        open: row.open || [],
+        close: row.close || [],
+        openStartAt: row.open_start_at || null,
+        closeEndAt: row.close_end_at || null,
+        date: row.date || dateStr
+      };
+    } else {
+      currentDoc = { open: [], close: [], openStartAt: null, closeEndAt: null, date: dateStr };
+    }
+    render();
+    const now = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    document.getElementById("statusLine").textContent = `最終更新確認 ${now}(右上の更新ボタンで最新化)`;
+    document.getElementById("offlineNote").style.display = "none";
+  } catch (e) {
+    document.getElementById("statusLine").textContent = "";
+    const note = document.getElementById("offlineNote");
+    note.textContent = "読み込みに失敗しました: " + (e && e.message ? e.message : String(e));
+    note.style.display = "block";
+  }
+}
+
+function goToDate(dateStr) {
+  currentDate = dateStr;
+  const { weekday, date } = formatLabel(dateStr);
+  document.getElementById("weekdayLabel").textContent = weekday;
+  document.getElementById("dateLabel").textContent = date;
+  document.getElementById("datePicker").value = dateStr;
+  document.getElementById("offlineNote").style.display = "none";
+  currentDoc = { open: [], close: [] };
+  render();
+  loadDate(dateStr);
+}
+
+function shiftDate(days) {
+  const [y,m,d] = currentDate.split("-").map(Number);
+  const dt = new Date(y, m-1, d);
+  dt.setDate(dt.getDate() + days);
+  const ny = dt.getFullYear();
+  const nm = String(dt.getMonth()+1).padStart(2,"0");
+  const nd = String(dt.getDate()).padStart(2,"0");
+  goToDate(`${ny}-${nm}-${nd}`);
+}
+
+document.getElementById("prevDay").addEventListener("click", () => shiftDate(-1));
+document.getElementById("nextDay").addEventListener("click", () => shiftDate(1));
+document.getElementById("refreshBtn").addEventListener("click", () => loadDate(currentDate));
+document.getElementById("todayBtn").addEventListener("click", () => goToDate(businessDateStr(new Date())));
+document.getElementById("datePicker").addEventListener("change", (e) => {
+  if (e.target.value) goToDate(e.target.value);
+});
+
+// ---- 月次ビュー ----
+let currentMonth = (() => {
+  const [y,m] = currentDate.split("-").map(Number);
+  return { y, m };
+})();
+
+function daysInMonth(y, m) {
+  return new Date(y, m, 0).getDate();
+}
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function switchTab(tab) {
+  const daily = document.getElementById("dailyView");
+  const month = document.getElementById("monthView");
+  const tabDaily = document.getElementById("tabDaily");
+  const tabMonth = document.getElementById("tabMonth");
+  if (tab === "daily") {
+    daily.classList.remove("hidden");
+    month.classList.add("hidden");
+    tabDaily.classList.add("active");
+    tabMonth.classList.remove("active");
+  } else {
+    daily.classList.add("hidden");
+    month.classList.remove("hidden");
+    tabDaily.classList.remove("active");
+    tabMonth.classList.add("active");
+    loadMonth(currentMonth.y, currentMonth.m);
+  }
+}
+
+async function loadMonth(y, m) {
+  document.getElementById("monthLabel").textContent = `${y}年${m}月`;
+  const total = daysInMonth(y, m);
+  document.getElementById("monthDaysTotal").textContent = total;
+  document.getElementById("monthDaysTotal2").textContent = total;
+  const listEl = document.getElementById("monthList");
+  const statusEl = document.getElementById("monthStatusLine");
+  listEl.innerHTML = "";
+  statusEl.textContent = "読み込み中...";
+
+  const start = `${y}-${pad2(m)}-01`;
+  const end = `${y}-${pad2(m)}-${pad2(total)}`;
+  let docsByDate = {};
+  try {
+    const rows = await sbGetRange(start, end);
+    rows.forEach(r => { docsByDate[r.date] = { open: r.open, close: r.close }; });
+    statusEl.textContent = "";
+  } catch (e) {
+    statusEl.textContent = "月次データの取得に失敗しました";
+  }
+
+  const todayS = businessDateStr(new Date());
+  let openDoneDays = 0;
+  let closeDoneDays = 0;
+
+  for (let day = 1; day <= total; day++) {
+    const dStr = `${y}-${pad2(m)}-${pad2(day)}`;
+    const dt = new Date(y, m - 1, day);
+    const wd = dt.getDay();
+    const rec = docsByDate[dStr] || {};
+    const openArr = rec.open || [];
+    const closeArr = rec.close || [];
+    const openDone = openArr.filter(Boolean).length;
+    const closeDone = closeArr.filter(Boolean).length;
+    const openComplete = openDone === OPEN_ITEMS.length && OPEN_ITEMS.length > 0;
+    const closeComplete = closeDone === CLOSE_ITEMS.length && CLOSE_ITEMS.length > 0;
+    if (openComplete) openDoneDays++;
+    if (closeComplete) closeDoneDays++;
+
+    const row = document.createElement("div");
+    let rowClass = "day-row";
+    if (wd === 6) rowClass += " weekend-sat";
+    if (wd === 0) rowClass += " weekend-sun";
+    if (dStr > todayS) rowClass += " future";
+    row.className = rowClass;
+    row.innerHTML = `
+      <div class="day-num"><div class="n">${day}</div><div class="w">${WEEKDAYS[wd]}</div></div>
+      <div class="bars">
+        <div class="mini-pill ${openComplete ? 'open-done' : ''}">開 ${openDone}/${OPEN_ITEMS.length}</div>
+        <div class="mini-pill ${closeComplete ? 'close-done' : ''}">閉 ${closeDone}/${CLOSE_ITEMS.length}</div>
+      </div>
+    `;
+    row.addEventListener("click", () => {
+      goToDate(dStr);
+      switchTab("daily");
+    });
+    listEl.appendChild(row);
+  }
+
+  document.getElementById("openMonthCount").textContent = openDoneDays;
+  document.getElementById("closeMonthCount").textContent = closeDoneDays;
+}
+
+function shiftMonth(delta) {
+  let { y, m } = currentMonth;
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  currentMonth = { y, m };
+  loadMonth(y, m);
+}
+
+document.getElementById("tabDaily").addEventListener("click", () => switchTab("daily"));
+document.getElementById("tabMonth").addEventListener("click", () => switchTab("month"));
+document.getElementById("prevMonth").addEventListener("click", () => shiftMonth(-1));
+document.getElementById("nextMonth").addEventListener("click", () => shiftMonth(1));
+
+function init() {
+  goToDate(currentDate);
+
+  // 7:00の境界をまたいだら自動でロック表示に切り替える(1分毎に確認・書き込みは行わない)
+  setInterval(() => {
+    render();
+  }, 60000);
+}
+
+init();
+</script>
+</body>
+</html>
