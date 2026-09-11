@@ -191,6 +191,7 @@
     opacity:.85;letter-spacing:.02em;
   }
   .receipt-pay{font-size:10px;color:var(--ink-soft);margin-top:2px;}
+  .receipt-by{font-size:10px;color:var(--sage);margin-top:2px;}
 
   .empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:40px 10px;line-height:1.8;}
 
@@ -391,9 +392,11 @@ function toast(msg){
 }
 
 // ---- auth ----
+let currentUserEmail = '';
 async function checkAuthAndInit(){
   const { data:{session} } = await sb.auth.getSession();
   if(session){
+    currentUserEmail = session.user?.email || '';
     showApp();
   } else {
     showLogin();
@@ -429,6 +432,7 @@ async function doLogin(){
   try{
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if(error) throw error;
+    currentUserEmail = email;
     showApp();
   }catch(e){
     errEl.innerHTML = `<div class="err">ログインに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
@@ -463,7 +467,7 @@ async function loadData(){
     if(vendorRes.error) throw vendorRes.error;
     expenses = (expRes.data||[]).map(e=>({
       id: e.id, date: e.date, amount: Number(e.amount), vendor: e.vendor,
-      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt
+      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt, createdBy: e.created_by||''
     }));
     vendorMap = {};
     (mapRes.data||[]).forEach(v=>{ vendorMap[v.vendor] = v.category; });
@@ -700,13 +704,13 @@ async function saveExpenseToSupabase(entry){
     const { data, error } = await sb.from('expenses').insert([{
       date: entry.date, amount: entry.amount, vendor: entry.vendor,
       category: entry.category, memo: wasPettyCash ? (entry.memo ? entry.memo+'(小口現金)' : '(小口現金)') : entry.memo,
-      payment: entry.payment, has_receipt: entry.hasReceipt
+      payment: entry.payment, has_receipt: entry.hasReceipt, created_by: currentUserEmail
     }]).select();
     if(error) throw error;
     const saved = data[0];
     expenses.unshift({
       id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
-      category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt
+      category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt, createdBy: saved.created_by||''
     });
     if(entry.vendor) upsertVendorMap(entry.vendor, entry.category);
 
@@ -904,6 +908,7 @@ function renderList(){
           <div class="receipt-vendor">${escapeHtml(e.vendor)}</div>
           <span class="receipt-cat">${e.category}</span>
           <div class="receipt-pay">${e.payment}${e.memo ? ' ・ '+escapeHtml(e.memo) : ''}</div>
+          <div class="receipt-by">登録: ${escapeHtml(e.createdBy ? e.createdBy.split('@')[0] : '不明')}</div>
           <div style="margin-top:6px;display:flex;gap:6px;">
             ${e.hasReceipt ? `<button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="viewReceipt('${e.id}')">レシート画像を見る</button>` : ''}
             <button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;color:var(--stamp);border-color:var(--stamp);" onclick="deleteExpense('${e.id}', ${e.hasReceipt})">削除</button>
@@ -1344,7 +1349,7 @@ async function commitImport(){
     date: r.date, amount: r.amount, vendor: r.vendor, category: r.category,
     memo: isPersonal ? '個人カード立替' : 'コーポレートカード明細',
     payment: isPersonal ? '現金' : 'クレジット',
-    has_receipt: false
+    has_receipt: false, created_by: currentUserEmail
   }));
   try{
     const { data, error } = await sb.from('expenses').insert(rows).select();
@@ -1352,7 +1357,7 @@ async function commitImport(){
     data.forEach(saved=>{
       expenses.unshift({
         id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
-        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false
+        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false, createdBy: saved.created_by||''
       });
     });
     toAdd.forEach(r=>{ if(r.vendor) upsertVendorMap(r.vendor, r.category); });
