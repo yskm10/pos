@@ -709,7 +709,7 @@ async function saveExpenseToSupabase(entry){
     const { data, error } = await sb.from('expenses').insert([{
       date: entry.date, amount: entry.amount, vendor: entry.vendor,
       category: entry.category, memo: wasPettyCash ? (entry.memo ? entry.memo+'(小口現金)' : '(小口現金)') : entry.memo,
-      payment: entry.payment, has_receipt: entry.hasReceipt, created_by: currentUserEmail
+      payment: entry.payment, has_receipt: entry.hasReceipt
     }]).select();
     if(error) throw error;
     const saved = data[0];
@@ -1358,7 +1358,7 @@ async function commitImport(){
     date: r.date, amount: r.amount, vendor: r.vendor, category: r.category,
     memo: isPersonal ? '個人カード立替' : 'コーポレートカード明細',
     payment: isPersonal ? '現金' : 'クレジット',
-    has_receipt: false, created_by: currentUserEmail
+    has_receipt: false
   }));
   try{
     const { data, error } = await sb.from('expenses').insert(rows).select();
