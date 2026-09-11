@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>経営ダッシュボード</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --paper:#F3EEE0; --paper-dark:#E8E1CC; --ink:#1C2333; --ink-soft:#5B5546;
+    --stamp:#A82C2C; --stamp-dark:#7E1F1F; --sage:#4A6B5A; --line:#D8D0B8; --white:#FBF9F3;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:radial-gradient(ellipse at top, #FAF7EC 0%, var(--paper) 60%);
+    color:var(--ink);font-family:'Noto Sans JP',sans-serif;min-height:100vh;padding-bottom:60px;}
+  .roll{background:var(--ink);color:var(--paper);padding:28px 20px 22px;text-align:center;position:relative;}
+  .roll::after{content:"";position:absolute;left:0;right:0;bottom:-10px;height:20px;background:var(--ink);
+    clip-path:polygon(0 0,4% 100%,8% 0,12% 100%,16% 0,20% 100%,24% 0,28% 100%,32% 0,36% 100%,40% 0,44% 100%,48% 0,52% 100%,56% 0,60% 100%,64% 0,68% 100%,72% 0,76% 100%,80% 0,84% 100%,88% 0,92% 100%,96% 0,100% 100%);}
+  .roll h1{font-family:'Shippori Mincho',serif;font-size:24px;letter-spacing:.15em;margin:0 0 4px;font-weight:700;}
+  .roll p{margin:0;font-size:11px;letter-spacing:.1em;opacity:.6;font-family:'JetBrains Mono',monospace;}
+  .tabs{display:flex;justify-content:center;gap:0;margin:26px auto 18px;max-width:900px;padding:0 12px;flex-wrap:wrap;}
+  .tab{flex:1;min-width:70px;text-align:center;padding:10px 4px;font-size:12.5px;font-weight:700;letter-spacing:.05em;
+    color:var(--ink-soft);border-bottom:2px solid var(--line);cursor:pointer;background:none;font-family:'Noto Sans JP',sans-serif;}
+  .tab.active{color:var(--stamp);border-bottom:2px solid var(--stamp);}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 28px;}
+  .grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;align-items:start;}
+  .grid-cards .sum-block{margin-bottom:0;}
+  .ledger-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start;}
+  .ratio{color:var(--ink-soft);font-size:11.5px;margin-left:8px;font-weight:400;font-family:'Noto Sans JP',sans-serif;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+  .btn{display:block;width:100%;padding:12px;border:none;border-radius:2px;font-family:'Noto Sans JP',sans-serif;
+    font-weight:700;font-size:14px;letter-spacing:.06em;cursor:pointer;margin-top:10px;}
+  .btn-primary{background:var(--ink);color:var(--paper);}
+  .btn-primary:disabled{opacity:.4;cursor:default;}
+  .btn-stamp{background:var(--stamp);color:var(--white);}
+  .btn-ghost{background:none;color:var(--ink-soft);border:1px solid var(--line);}
+  .btn-sm{width:auto;padding:6px 12px;font-size:12px;margin:0;display:inline-block;}
+  .field{margin-top:12px;}
+  .field label{display:block;font-size:11px;color:var(--ink-soft);letter-spacing:.1em;margin-bottom:4px;font-weight:700;}
+  .field input,.field select{width:100%;padding:9px;border:1px solid var(--line);border-radius:2px;font-size:14px;
+    background:var(--white);font-family:'JetBrains Mono',monospace;color:var(--ink);}
+  .field select{font-family:'Noto Sans JP',sans-serif;}
+  .row2{display:flex;gap:10px;}
+  .row2 .field{flex:1;}
+  .month-select{display:flex;align-items:center;justify-content:center;gap:16px;margin:6px 0 18px;}
+  .month-select button{background:none;border:none;font-size:20px;color:var(--ink-soft);cursor:pointer;}
+  .month-select span{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;letter-spacing:.05em;}
+  .sum-block{background:var(--white);padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .sum-title{font-size:11px;color:var(--ink-soft);letter-spacing:.1em;margin-bottom:8px;font-weight:700;}
+  .sum-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px;}
+  .sum-row:last-child{border-bottom:none;}
+  .sum-row span:last-child{font-family:'JetBrains Mono',monospace;font-weight:600;}
+  .sum-row.neg span:last-child{color:var(--stamp);}
+  .sum-total{display:flex;justify-content:space-between;padding-top:10px;margin-top:4px;border-top:2px solid var(--ink);font-weight:700;font-size:16px;}
+  .sum-total span:last-child{font-family:'JetBrains Mono',monospace;}
+  .sum-total.up span:last-child{color:var(--sage);}
+  .sum-total.down span:last-child{color:var(--stamp);}
+  .cat-group{margin-bottom:16px;}
+  .cat-head{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--ink-soft);
+    letter-spacing:.05em;padding:6px 2px;border-bottom:2px solid var(--ink);}
+  .cat-head span:last-child{font-family:'JetBrains Mono',monospace;}
+  .pay-head{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--sage);
+    letter-spacing:.05em;padding:8px 2px 3px;}
+  .pay-head span:last-child{font-family:'JetBrains Mono',monospace;}
+  .exp-row{display:flex;align-items:center;gap:8px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13px;background:var(--white);}
+  .exp-row.excluded{opacity:.4;}
+  .exp-row .exp-main{flex:1;min-width:0;}
+  .exp-row .exp-vendor{font-weight:700;}
+  .exp-row .exp-meta{font-size:10.5px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;}
+  .exp-row .exp-amt{font-family:'JetBrains Mono',monospace;font-weight:700;white-space:nowrap;}
+  .exp-row input[type=checkbox]{width:18px;height:18px;flex-shrink:0;}
+  .master-item{display:flex;align-items:center;justify-content:space-between;padding:9px 2px;border-bottom:1px solid var(--line);font-size:14px;}
+  .master-item.inactive{opacity:.4;}
+  .master-add{display:flex;gap:8px;margin-top:12px;}
+  .master-add input{flex:1;padding:9px;border:1px solid var(--line);border-radius:2px;font-size:14px;background:var(--white);}
+  .section-title{font-family:'Shippori Mincho',serif;font-size:15px;margin:22px 0 8px;letter-spacing:.08em;}
+  .section-title:first-child{margin-top:0;}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+    padding:10px 20px;border-radius:20px;font-size:13px;box-shadow:0 3px 10px rgba(0,0,0,.2);opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;}
+  .toast.show{opacity:1;}
+  .loading{text-align:center;padding:16px;font-size:12px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;}
+  .empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:30px 10px;line-height:1.8;}
+  .err{color:var(--stamp);font-size:12px;margin-top:8px;}
+  .slot{border:2px dashed var(--line);border-radius:6px;background:var(--white);text-align:center;padding:28px 16px;cursor:pointer;}
+  .slot:hover{border-color:var(--stamp);}
+  .slot p{margin:0;font-size:13px;color:var(--ink-soft);letter-spacing:.05em;}
+  #payslipInput{display:none;}
+  .pay-card{background:var(--white);padding:14px;margin-top:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .login-screen{position:fixed;inset:0;background:var(--paper);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .login-card{background:var(--white);padding:32px 24px;max-width:340px;width:100%;box-shadow:0 2px 12px rgba(0,0,0,.1);text-align:center;}
+  .login-card h2{font-family:'Shippori Mincho',serif;font-size:20px;margin:0 0 4px;letter-spacing:.1em;}
+  .login-card p{font-size:11px;color:var(--ink-soft);margin:0 0 20px;font-family:'JetBrains Mono',monospace;}
+  .login-card .field{text-align:left;}
+  .logout-btn{position:absolute;top:14px;right:14px;background:none;border:none;color:var(--paper);opacity:.6;font-size:11px;cursor:pointer;letter-spacing:.05em;font-family:'Noto Sans JP',sans-serif;}
+</style>
+</head>
+<body>
+
+<div class="login-screen" id="loginScreen" style="display:none;">
+  <div class="login-card">
+    <h2>経営ダッシュボード</h2>
+    <p>OWNER ONLY · MEDICOM</p>
+    <div class="field"><label>メールアドレス</label><input type="email" id="login-email" autocomplete="username"></div>
+    <div class="field"><label>パスワード</label><input type="password" id="login-password" autocomplete="current-password"></div>
+    <div id="loginErr"></div>
+    <button class="btn btn-stamp" id="loginBtn">ログイン</button>
+  </div>
+</div>
+
+<div class="roll" style="position:relative;">
+  <button class="logout-btn" id="logoutBtn" style="display:none;" onclick="doLogout()">ログアウト</button>
+  <h1>経 営 ダッシュボード</h1>
+  <p>OWNER ONLY · MEDICOM</p>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="summary">📊 概要</button>
+  <button class="tab" data-tab="ledger">📋 経費帳</button>
+  <button class="tab" data-tab="payroll">🧾 給与</button>
+  <button class="tab" data-tab="settings">⚙️ 設定</button>
+</div>
+
+<div class="wrap" id="mainWrap" style="display:none;">
+
+  <!-- 概要 -->
+  <div class="panel active" id="panel-summary">
+    <div class="month-select">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <span id="monthLabelS"></span>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+    <div id="summaryArea"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <!-- 経費帳 -->
+  <div class="panel" id="panel-ledger">
+    <div class="month-select">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <span id="monthLabelL"></span>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px;">✓を外すとその月の集計から除外されます(登録自体は消えません)</div>
+    <div id="ledgerArea"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <!-- 給与 -->
+  <div class="panel" id="panel-payroll">
+    <div class="section-title">給与明細を読み込む</div>
+    <div class="slot" onclick="document.getElementById('payslipInput').click()">
+      <p>タップして給与明細PDFを選択<br>(複数人分まとめて1枚でもOK)</p>
+    </div>
+    <input type="file" id="payslipInput" accept="application/pdf,.pdf">
+    <div id="payrollPreviewArea"></div>
+    <div class="section-title">この月の登録済み給与</div>
+    <div class="month-select">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <span id="monthLabelP"></span>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+    <div id="payrollListArea"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <!-- 設定 -->
+  <div class="panel" id="panel-settings">
+    <div class="ledger-grid">
+      <div>
+        <div class="section-title">仕入先マスタ</div>
+        <div id="vendorArea"><div class="loading">読み込み中...</div></div>
+        <div class="master-add">
+          <input type="text" id="newVendorName" placeholder="新しい仕入先名">
+          <button class="btn btn-primary btn-sm" onclick="addVendor()">追加</button>
+        </div>
+      </div>
+      <div>
+        <div class="section-title">従業員マスタ</div>
+        <div id="staffArea"><div class="loading">読み込み中...</div></div>
+        <div style="font-size:10.5px;color:var(--ink-soft);margin-top:10px;">経費帳アプリのログインメールを登録すると、経費帳の一覧にメールの代わりに名前が表示されます(未登録でもOK)</div>
+        <div class="master-add">
+          <input type="text" id="newStaffName" placeholder="新しい従業員名">
+          <input type="email" id="newStaffEmail" placeholder="ログインメール(任意)">
+          <button class="btn btn-primary btn-sm" onclick="addStaff()">追加</button>
+        </div>
+      </div>
+    </div>
+    <div class="section-title">税率設定(仕入の税抜換算に使用)</div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">「適用開始日」以降の月にその税率が使われます。税率が変わったら新しい行を追加してください(古い行は消さなくて大丈夫です)</div>
+    <div id="taxRateArea"><div class="loading">読み込み中...</div></div>
+    <div class="master-add">
+      <input type="number" id="newTaxRate" placeholder="税率(例:10)" style="max-width:120px;">
+      <input type="date" id="newTaxRateDate">
+      <button class="btn btn-primary btn-sm" onclick="addTaxRate()">追加</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATEGORIES = ["仕入高","家賃","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","租税公課","預り金","雑費"];
+
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const PROXY_URL = "https://medicom.co.jp/proxy.php";
+const PROXY_SECRET = "S-djkcI9lY9yqhWupxMrQct4f9xFyrSP";
+
+let curMonth = new Date(); curMonth.setDate(1); curMonth.setHours(0,0,0,0);
+let vendors = [], staffList = [], taxRates = [];
+let ledgerExpenses = [];
+let currentPayrollRows = [];
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function pad(n){ return String(n).padStart(2,'0'); }
+function monthKey(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1); }
+function monthLabel(d){ return d.getFullYear()+'年'+(d.getMonth()+1)+'月'; }
+function yen(n){ return '¥'+Math.round(Number(n)||0).toLocaleString(); }
+
+function jstRange(d){
+  const y=d.getFullYear(), m=d.getMonth();
+  const y2 = m===11 ? y+1 : y, m2 = (m+1)%12;
+  const startISO = `${y}-${pad(m+1)}-01T00:00:00+09:00`;
+  const endISO   = `${y2}-${pad(m2+1)}-01T00:00:00+09:00`;
+  const dateStart = `${y}-${pad(m+1)}-01`;
+  const dateEnd   = `${y2}-${pad(m2+1)}-01`;
+  return {startISO, endISO, dateStart, dateEnd};
+}
+// POSは「深夜0時〜朝7時の売上は前日(=前月)扱い」という営業日ロジックで集計しているため、
+// 売上(sales)を月次集計するときはPOSに合わせて朝7時を月の境目にする
+function jstBusinessRange(d){
+  const y=d.getFullYear(), m=d.getMonth();
+  const y2 = m===11 ? y+1 : y, m2 = (m+1)%12;
+  const startISO = `${y}-${pad(m+1)}-01T07:00:00+09:00`;
+  const endISO   = `${y2}-${pad(m2+1)}-01T07:00:00+09:00`;
+  return {startISO, endISO};
+}
+// 指定した日付時点で有効な税率を返す(effective_fromが最も新しく、かつその日以前のもの)
+function rateForDate(dateStr){
+  const applicable = taxRates.filter(t=>t.effective_from <= dateStr).sort((a,b)=> a.effective_from < b.effective_from ? 1 : -1);
+  return applicable.length ? Number(applicable[0].rate) : 10; // 登録が無ければ10%を仮定
+}
+function sumBy(rows, key){ return (rows||[]).reduce((a,r)=>a+(Number(r[key])||0),0); }
+
+// ---- auth ----
+async function checkAuthAndInit(){
+  const { data:{session} } = await sb.auth.getSession();
+  if(session){ showApp(); } else { showLogin(); }
+}
+function showLogin(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('mainWrap').style.display='none';
+  document.getElementById('logoutBtn').style.display='none';
+}
+function showApp(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('mainWrap').style.display='block';
+  document.getElementById('logoutBtn').style.display='block';
+  loadMasters().then(renderAllMonthViews);
+}
+async function doLogin(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('loginErr');
+  errEl.innerHTML='';
+  if(!email||!password){ errEl.innerHTML='<div class="err">メールアドレスとパスワードを入力してください</div>'; return; }
+  const btn = document.getElementById('loginBtn');
+  btn.disabled=true; btn.textContent='ログイン中...';
+  try{
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    showApp();
+  }catch(e){
+    errEl.innerHTML = `<div class="err">ログインに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+  btn.disabled=false; btn.textContent='ログイン';
+}
+async function doLogout(){ await sb.auth.signOut(); showLogin(); }
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+sb.auth.onAuthStateChange((event)=>{ if(event==='SIGNED_OUT') showLogin(); });
+
+// ---- tabs ----
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ---- month nav ----
+function shiftMonth(delta){
+  curMonth.setMonth(curMonth.getMonth()+delta);
+  renderAllMonthViews();
+}
+function renderAllMonthViews(){
+  ['monthLabelS','monthLabelL','monthLabelP'].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.textContent = monthLabel(curMonth);
+  });
+  loadSummary();
+  loadLedger();
+  loadPayrollList();
+}
+
+// ---- 概要 ----
+async function loadSummary(){
+  const area = document.getElementById('summaryArea');
+  area.innerHTML = '<div class="loading">読み込み中...</div>';
+  try{
+    const r = jstRange(curMonth);
+    const rBiz = jstBusinessRange(curMonth);
+    const ly = new Date(curMonth); ly.setFullYear(ly.getFullYear()-1);
+    const rLY = jstRange(ly);
+    const rLYBiz = jstBusinessRange(ly);
+
+    const [sales, salesLY, expRes, payRes] = await Promise.all([
+      sb.from('sales').select('total,subtotal').gte('created_at', rBiz.startISO).lt('created_at', rBiz.endISO),
+      sb.from('sales').select('total,subtotal').gte('created_at', rLYBiz.startISO).lt('created_at', rLYBiz.endISO),
+      sb.from('expenses').select('*').gte('date', r.dateStart).lt('date', r.dateEnd),
+      sb.from('payroll').select('amount').eq('month', monthKey(curMonth)),
+    ]);
+    if(sales.error) throw sales.error;
+    if(salesLY.error) throw salesLY.error;
+    if(expRes.error) throw expRes.error;
+    if(payRes.error) throw payRes.error;
+
+    const salesTotal = sumBy(sales.data,'total');
+    const salesTotalExcl = sumBy(sales.data,'subtotal');
+    const salesLYTotal = sumBy(salesLY.data,'total');
+    const salesLYTotalExcl = sumBy(salesLY.data,'subtotal');
+    const included = (expRes.data||[]).filter(e=>!e.excluded);
+    let purchase=0, rent=0, other=0;
+    included.forEach(e=>{
+      const amt = Number(e.amount)||0;
+      if(e.category==='仕入高') purchase+=amt;
+      else if(e.category==='家賃') rent+=amt;
+      else other+=amt;
+    });
+    // 仕入(税抜)は経費帳に税額が別記録されていないため、設定した税率を使った概算値
+    const purchaseRate = rateForDate(r.dateStart);
+    const purchaseExcl = purchase / (1 + purchaseRate/100);
+    const payrollTotal = sumBy(payRes.data,'amount');
+    const totalCost = purchase + payrollTotal + rent + other;
+    const gross = salesTotal - totalCost;
+    const yoy = salesLYTotal ? (salesTotal/salesLYTotal*100) : null;
+    const pct = (part)=> salesTotal ? `<span class="ratio">(売上比 ${(part/salesTotal*100).toFixed(1)}%)</span>` : '';
+
+    area.innerHTML = `
+      <div class="grid-cards">
+        <div class="sum-block">
+          <div class="sum-title">売上</div>
+          <div class="sum-row"><span>今月の売上(税込)</span><span>${yen(salesTotal)}</span></div>
+          <div class="sum-row"><span>今月の売上(税抜)</span><span>${yen(salesTotalExcl)}</span></div>
+          <div class="sum-row"><span>前年同月(税込)</span><span>${yen(salesLYTotal)}</span></div>
+          <div class="sum-row"><span>前年同月(税抜)</span><span>${yen(salesLYTotalExcl)}</span></div>
+          <div class="sum-row"><span>昨対比(税込)</span><span>${yoy===null?'—':yoy.toFixed(1)+'%'}</span></div>
+          <div style="font-size:10px;color:var(--ink-soft);margin-top:6px;">POSの営業日ロジック(朝7時が日/月の境目)に合わせて集計しています</div>
+        </div>
+        <div class="sum-block">
+          <div class="sum-title">コスト内訳(カッコ内は税込売上に対する比率)</div>
+          <div class="sum-row"><span>仕入(税込)</span><span>${yen(purchase)}${pct(purchase)}</span></div>
+          <div class="sum-row"><span>仕入(税抜・${purchaseRate}%換算の概算)</span><span>${yen(purchaseExcl)}</span></div>
+          <div class="sum-row"><span>人件費</span><span>${yen(payrollTotal)}${pct(payrollTotal)}</span></div>
+          <div class="sum-row"><span>家賃</span><span>${yen(rent)}${pct(rent)}</span></div>
+          <div class="sum-row"><span>その他経費</span><span>${yen(other)}${pct(other)}</span></div>
+          <div class="sum-total"><span>コスト合計(税込)</span><span>${yen(totalCost)}${pct(totalCost)}</span></div>
+        </div>
+        <div class="sum-block">
+          <div class="sum-title">粗利</div>
+          <div class="sum-total ${gross>=0?'up':'down'}"><span>粗利(税込ベース)</span><span>${yen(gross)}${pct(gross)}</span></div>
+        </div>
+      </div>
+      <div style="font-size:10.5px;color:var(--ink-soft);text-align:center;margin-top:14px;">
+        売上=POS確定注文合計 / 経費帳の✓除外分はコストに含まれません
+      </div>`;
+  }catch(e){
+    area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+
+// ---- 経費帳(除外チェック) ----
+async function loadLedger(){
+  const area = document.getElementById('ledgerArea');
+  area.innerHTML = '<div class="loading">読み込み中...</div>';
+  try{
+    const r = jstRange(curMonth);
+    const { data, error } = await sb.from('expenses').select('*')
+      .gte('date', r.dateStart).lt('date', r.dateEnd)
+      .order('date', {ascending:false});
+    if(error) throw error;
+    ledgerExpenses = data||[];
+    renderLedger();
+  }catch(e){
+    area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+function bucketOf(cat){
+  if(cat==='仕入高') return '仕入';
+  if(cat==='家賃') return '家賃';
+  return 'その他経費';
+}
+function renderLedger(){
+  const area = document.getElementById('ledgerArea');
+  if(ledgerExpenses.length===0){ area.innerHTML='<div class="empty">この月の経費帳データはありません</div>'; return; }
+  const groups = {'仕入':[], '家賃':[], 'その他経費':[]};
+  ledgerExpenses.forEach(e=>groups[bucketOf(e.category)].push(e));
+  let html = '<div class="ledger-grid">';
+  Object.keys(groups).forEach(g=>{
+    const rows = groups[g];
+    const subtotal = rows.filter(e=>!e.excluded).reduce((a,e)=>a+(Number(e.amount)||0),0);
+    html += `<div class="cat-group"><div class="cat-head"><span>${g}</span><span>${yen(subtotal)}</span></div>`;
+    if(rows.length===0){
+      html += `<div class="empty">データなし</div>`;
+    } else {
+      const isPetty = e => (e.memo||'').includes('小口現金');
+      const petty = rows.filter(isPetty);
+      const cash  = rows.filter(e=>!isPetty(e) && e.payment==='現金');
+      const card  = rows.filter(e=>!isPetty(e) && e.payment==='クレジット');
+      const transfer = rows.filter(e=>!isPetty(e) && e.payment==='振込');
+      const others= rows.filter(e=>!isPetty(e) && !['現金','クレジット','振込'].includes(e.payment));
+
+      if(petty.length){
+        const pTotal = petty.reduce((a,e)=>a+(Number(e.amount)||0),0);
+        html += `<div class="pay-head"><span>小口現金(${petty.length}件・基本すべて算入)</span><span>${yen(pTotal)}</span></div>`;
+      }
+      if(cash.length){ html += `<div class="pay-head"><span>現金</span></div>`; cash.forEach(e=> html += expRowHtml(e)); }
+      if(card.length){ html += `<div class="pay-head"><span>カード</span></div>`; card.forEach(e=> html += expRowHtml(e)); }
+      if(transfer.length){ html += `<div class="pay-head"><span>振込</span></div>`; transfer.forEach(e=> html += expRowHtml(e)); }
+      if(others.length){ html += `<div class="pay-head"><span>その他</span></div>`; others.forEach(e=> html += expRowHtml(e)); }
+    }
+    html += `</div>`;
+  });
+  html += '</div>';
+  area.innerHTML = html;
+}
+function expRowHtml(e){
+  return `
+    <div class="exp-row ${e.excluded?'excluded':''}">
+      <input type="checkbox" ${e.excluded?'':'checked'} onchange="toggleExcluded('${e.id}', !this.checked)">
+      <div class="exp-main">
+        <div class="exp-vendor">${escapeHtml(e.vendor||'(支出先未記入)')}</div>
+        <div class="exp-meta">${e.date} ・ ${escapeHtml(e.category)}${e.memo?' ・ '+escapeHtml(e.memo):''}</div>
+      </div>
+      <div class="exp-amt">${yen(e.amount)}</div>
+    </div>`;
+}
+async function toggleExcluded(id, excluded){
+  const item = ledgerExpenses.find(e=>String(e.id)===String(id));
+  if(item) item.excluded = excluded;
+  renderLedger();
+  try{
+    const { error } = await sb.from('expenses').update({excluded}).eq('id', id);
+    if(error) throw error;
+    loadSummary();
+  }catch(e){
+    toast('保存に失敗しました: '+(e.message||e));
+  }
+}
+
+// ---- 給与(PDF読み込み) ----
+document.getElementById('payslipInput').addEventListener('change', (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    const base64 = reader.result.split(',')[1];
+    analyzePayslip(base64);
+  };
+  reader.onerror = ()=> toast('ファイルの読み込みに失敗しました');
+  reader.readAsDataURL(f);
+});
+async function analyzePayslip(base64){
+  const area = document.getElementById('payrollPreviewArea');
+  area.innerHTML = '<div class="loading">給与明細を解析中...</div>';
+  const monthGuess = monthKey(curMonth);
+  const prompt = `この給与明細PDFから氏名と支給金額を抽出してください。
+出力は必ずJSON配列のみ。前置き・説明・コードブロックは一切不要。
+複数人分の明細が含まれる場合はそれぞれ1要素として出力してください。
+
+[{"employee":"氏名","month":"YYYY-MM形式の対象年月。読み取れなければ${monthGuess}","amount":数値のみ(円、カンマなし。差引支給額があればそれを優先し、無ければ総支給額)}]`;
+  try{
+    const response = await fetch(PROXY_URL, {
+      method:"POST",
+      headers:{"Content-Type":"application/json","X-App-Secret":PROXY_SECRET},
+      body: JSON.stringify({
+        model:"claude-sonnet-5", max_tokens:2048,
+        messages:[{role:"user", content:[
+          {type:"document", source:{type:"base64", media_type:"application/pdf", data: base64}},
+          {type:"text", text: prompt}
+        ]}]
+      })
+    });
+    if(!response.ok){ const t=await response.text(); throw new Error(`APIエラー(${response.status}): ${t.slice(0,200)}`); }
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
+    const text = data.content.map(b=>b.text||'').join('');
+    const clean = text.replace(/```json|```/g,'').trim();
+    let arr;
+    try{ arr = JSON.parse(clean); }catch(_){ throw new Error('AIの応答をJSONとして読み取れませんでした: '+clean.slice(0,150)); }
+    if(!Array.isArray(arr)) arr = [arr];
+    currentPayrollRows = arr.map(r=>({ employee:(r.employee||'').trim(), month:r.month||monthGuess, amount:Number(r.amount)||0 }));
+    renderPayrollPreview();
+  }catch(e){
+    area.innerHTML = `<div class="err">解析に失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+function renderPayrollPreview(){
+  const area = document.getElementById('payrollPreviewArea');
+  if(currentPayrollRows.length===0){ area.innerHTML=''; return; }
+  const staffOptions = staffList.filter(s=>s.active).map(s=>s.name);
+  let html = '<div style="font-size:11px;color:var(--ink-soft);margin:10px 0 4px;">内容を確認して登録してください</div>';
+  currentPayrollRows.forEach((r,i)=>{
+    const opts = staffOptions.includes(r.employee) ? staffOptions : [r.employee, ...staffOptions];
+    html += `
+      <div class="pay-card">
+        <div class="row2">
+          <div class="field"><label>従業員</label>
+            <select onchange="currentPayrollRows[${i}].employee=this.value">
+              ${opts.filter(Boolean).map(n=>`<option ${n===r.employee?'selected':''}>${escapeHtml(n)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>対象月</label><input type="month" value="${r.month}" onchange="currentPayrollRows[${i}].month=this.value"></div>
+        </div>
+        <div class="field"><label>支給額</label><input type="number" value="${r.amount}" onchange="currentPayrollRows[${i}].amount=Number(this.value)||0"></div>
+      </div>`;
+  });
+  html += `<button class="btn btn-stamp" onclick="confirmPayrollRows()">すべて登録する(${currentPayrollRows.length}件)</button>`;
+  area.innerHTML = html;
+}
+async function confirmPayrollRows(){
+  try{
+    const rows = currentPayrollRows.filter(r=>r.employee && r.amount);
+    if(rows.length===0){ toast('登録できる内容がありません'); return; }
+    const { error } = await sb.from('payroll').insert(rows.map(r=>({month:r.month, employee:r.employee, amount:r.amount})));
+    if(error) throw error;
+    for(const r of rows){
+      if(!staffList.some(s=>s.name===r.employee)){
+        await sb.from('staff').insert([{name:r.employee}]);
+      }
+    }
+    toast(`${rows.length}件登録しました`);
+    currentPayrollRows = [];
+    document.getElementById('payrollPreviewArea').innerHTML = '';
+    document.getElementById('payslipInput').value = '';
+    await loadMasters();
+    loadPayrollList(); loadSummary();
+  }catch(e){
+    toast('登録に失敗しました: '+(e.message||e));
+  }
+}
+async function loadPayrollList(){
+  const area = document.getElementById('payrollListArea');
+  area.innerHTML = '<div class="loading">読み込み中...</div>';
+  try{
+    const { data, error } = await sb.from('payroll').select('*').eq('month', monthKey(curMonth)).order('created_at',{ascending:false});
+    if(error) throw error;
+    if(!data || data.length===0){ area.innerHTML='<div class="empty">この月の給与登録はまだありません</div>'; return; }
+    const total = sumBy(data,'amount');
+    let html = `<div class="cat-head"><span>合計</span><span>${yen(total)}</span></div>`;
+    data.forEach(r=>{
+      html += `
+        <div class="exp-row">
+          <div class="exp-main"><div class="exp-vendor">${escapeHtml(r.employee)}</div></div>
+          <div class="exp-amt">${yen(r.amount)}</div>
+          <button class="btn btn-ghost btn-sm" onclick="deletePayroll('${r.id}')">削除</button>
+        </div>`;
+    });
+    area.innerHTML = html;
+  }catch(e){
+    area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+async function deletePayroll(id){
+  if(!confirm('この給与登録を削除しますか？')) return;
+  try{
+    const { error } = await sb.from('payroll').delete().eq('id', id);
+    if(error) throw error;
+    loadPayrollList(); loadSummary();
+  }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
+}
+
+// ---- 設定(マスタ管理) ----
+async function loadMasters(){
+  try{
+    const [v, s, t] = await Promise.all([
+      sb.from('vendors').select('*').order('name'),
+      sb.from('staff').select('*').order('name'),
+      sb.from('tax_rates').select('*').order('effective_from'),
+    ]);
+    if(v.error) throw v.error;
+    if(s.error) throw s.error;
+    if(t.error) throw t.error;
+    vendors = v.data||[]; staffList = s.data||[]; taxRates = t.data||[];
+    renderVendors(); renderStaff(); renderTaxRates();
+  }catch(e){
+    document.getElementById('vendorArea').innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+}
+function renderVendors(){
+  const area = document.getElementById('vendorArea');
+  if(vendors.length===0){ area.innerHTML='<div class="empty">仕入先が登録されていません</div>'; return; }
+  area.innerHTML = vendors.map(v=>`
+    <div class="master-item ${v.active?'':'inactive'}">
+      <span>${escapeHtml(v.name)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="deleteVendor('${v.id}')">削除</button>
+    </div>`).join('');
+}
+function renderStaff(){
+  const area = document.getElementById('staffArea');
+  if(staffList.length===0){ area.innerHTML='<div class="empty">従業員が登録されていません</div>'; return; }
+  area.innerHTML = staffList.map(s=>`
+    <div class="master-item ${s.active?'':'inactive'}">
+      <span>${escapeHtml(s.name)}${s.email?`<br><span style="font-size:10.5px;color:var(--ink-soft);">${escapeHtml(s.email)}</span>`:''}</span>
+      <button class="btn btn-ghost btn-sm" onclick="deleteStaff('${s.id}')">削除</button>
+    </div>`).join('');
+}
+function renderTaxRates(){
+  const area = document.getElementById('taxRateArea');
+  if(taxRates.length===0){ area.innerHTML='<div class="empty">税率が登録されていません(未登録の間は10%として計算します)</div>'; return; }
+  const sorted = [...taxRates].sort((a,b)=> a.effective_from < b.effective_from ? 1 : -1);
+  area.innerHTML = sorted.map(t=>`
+    <div class="master-item">
+      <span>${t.effective_from} 〜 ${t.rate}%</span>
+      <button class="btn btn-ghost btn-sm" onclick="deleteTaxRate('${t.id}')">削除</button>
+    </div>`).join('');
+}
+async function addTaxRate(){
+  const rateInput = document.getElementById('newTaxRate');
+  const dateInput = document.getElementById('newTaxRateDate');
+  const rate = Number(rateInput.value);
+  const effective_from = dateInput.value;
+  if(!rate || !effective_from){ toast('税率と適用開始日を入力してください'); return; }
+  try{
+    const { error } = await sb.from('tax_rates').insert([{rate, effective_from}]);
+    if(error) throw error;
+    rateInput.value=''; dateInput.value='';
+    await loadMasters();
+    loadSummary();
+  }catch(e){ toast('追加に失敗しました: '+(e.message||e)); }
+}
+async function deleteTaxRate(id){
+  if(!confirm('この税率設定を削除しますか？')) return;
+  try{
+    const { error } = await sb.from('tax_rates').delete().eq('id', id);
+    if(error) throw error;
+    await loadMasters();
+    loadSummary();
+  }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
+}
+async function addVendor(){
+  const input = document.getElementById('newVendorName');
+  const name = input.value.trim();
+  if(!name) return;
+  try{
+    const { error } = await sb.from('vendors').insert([{name}]);
+    if(error) throw error;
+    input.value = '';
+    await loadMasters();
+  }catch(e){ toast('追加に失敗しました: '+(e.message||e)); }
+}
+async function deleteVendor(id){
+  if(!confirm('この仕入先を削除しますか？')) return;
+  try{
+    const { error } = await sb.from('vendors').delete().eq('id', id);
+    if(error) throw error;
+    await loadMasters();
+  }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
+}
+async function addStaff(){
+  const input = document.getElementById('newStaffName');
+  const emailInput = document.getElementById('newStaffEmail');
+  const name = input.value.trim();
+  const email = emailInput.value.trim();
+  if(!name) return;
+  try{
+    const { error } = await sb.from('staff').insert([{name, email: email||null}]);
+    if(error) throw error;
+    input.value = ''; emailInput.value = '';
+    await loadMasters();
+  }catch(e){ toast('追加に失敗しました: '+(e.message||e)); }
+}
+async function deleteStaff(id){
+  if(!confirm('この従業員を削除しますか？')) return;
+  try{
+    const { error } = await sb.from('staff').delete().eq('id', id);
+    if(error) throw error;
+    await loadMasters();
+  }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
+}
+
+checkAuthAndInit();
+</script>
+</body>
+</html>
