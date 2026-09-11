@@ -470,7 +470,7 @@ async function loadData(){
     if(staffRes.error) throw staffRes.error;
     expenses = (expRes.data||[]).map(e=>({
       id: e.id, date: e.date, amount: Number(e.amount), vendor: e.vendor,
-      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt, createdBy: e.created_by||''
+      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt, createdBy: e.created_by_email||''
     }));
     vendorMap = {};
     (mapRes.data||[]).forEach(v=>{ vendorMap[v.vendor] = v.category; });
@@ -715,7 +715,7 @@ async function saveExpenseToSupabase(entry){
     const saved = data[0];
     expenses.unshift({
       id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
-      category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt, createdBy: saved.created_by||''
+      category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt, createdBy: saved.created_by_email||''
     });
     if(entry.vendor) upsertVendorMap(entry.vendor, entry.category);
 
@@ -1366,7 +1366,7 @@ async function commitImport(){
     data.forEach(saved=>{
       expenses.unshift({
         id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
-        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false, createdBy: saved.created_by||''
+        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false, createdBy: saved.created_by_email||''
       });
     });
     toAdd.forEach(r=>{ if(r.vendor) upsertVendorMap(r.vendor, r.category); });
