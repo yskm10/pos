@@ -223,6 +223,7 @@
 
   <div id="dailyView">
   <div class="lock-banner hidden" id="lockBanner">🔒 この日の記録は確定済みです(7:00を過ぎると自動的にロックされます)</div>
+  <div class="lock-banner hidden" id="openTimeBanner">🔒 開店チェックは18:00で締め切りました(閉店チェックは引き続き入力できます)</div>
 
   <section class="section open" id="openSection">
     <div class="section-head">
@@ -379,6 +380,19 @@ function isEditableDate(dateStr) {
   return dateStr === businessDateStr(new Date());
 }
 
+const OPEN_CUTOFF_HOUR = 18; // 開店チェックは18:00で締め切り
+
+function isOpenWindowOpen() {
+  return new Date().getHours() < OPEN_CUTOFF_HOUR;
+}
+
+// kind別の編集可否("close"は営業日ロックのみ、"open"はさらに18:00締め切りが加わる)
+function isKindEditable(kind, dateStr) {
+  if (!isEditableDate(dateStr)) return false;
+  if (kind === "open" && !isOpenWindowOpen()) return false;
+  return true;
+}
+
 function formatTime(iso) {
   if (!iso) return "";
   try {
@@ -423,12 +437,15 @@ function renderProgress(kind, stateArr, total) {
 function render() {
   const openArr = (currentDoc.open || []).slice();
   const closeArr = (currentDoc.close || []).slice();
-  const locked = !isEditableDate(currentDate);
+  const dayLocked = !isEditableDate(currentDate);
+  const openLocked = !isKindEditable("open", currentDate);
+  const closeLocked = !isKindEditable("close", currentDate);
 
-  document.getElementById("lockBanner").classList.toggle("hidden", !locked);
+  document.getElementById("lockBanner").classList.toggle("hidden", !dayLocked);
+  document.getElementById("openTimeBanner").classList.toggle("hidden", dayLocked || !openLocked);
 
-  renderList("openList", OPEN_ITEMS, openArr, "open", locked);
-  renderList("closeList", CLOSE_ITEMS, closeArr, "close", locked);
+  renderList("openList", OPEN_ITEMS, openArr, "open", openLocked);
+  renderList("closeList", CLOSE_ITEMS, closeArr, "close", closeLocked);
   renderProgress("open", openArr, OPEN_ITEMS.length);
   renderProgress("close", closeArr, CLOSE_ITEMS.length);
 
@@ -454,10 +471,12 @@ async function toggleItem(kind, index) {
 }
 
 async function toggleItemInner(kind, index) {
-  if (!isEditableDate(currentDate)) {
+  if (!isKindEditable(kind, currentDate)) {
     const statusEl = document.getElementById("statusLine");
     const original = statusEl.textContent;
-    statusEl.textContent = "🔒 この日はロック済みのため編集できません";
+    statusEl.textContent = !isEditableDate(currentDate)
+      ? "🔒 この日はロック済みのため編集できません"
+      : `🔒 開店チェックは${OPEN_CUTOFF_HOUR}:00以降入力できません`;
     setTimeout(() => { statusEl.textContent = original; }, 1800);
     return;
   }
