@@ -751,7 +751,7 @@ async function markServed(tableId,itemUid){
   });
   await syncTable(tableId,{order_json:JSON.stringify(order)});
 }
-function goCheckout(){syncTable(STATE.selId,{status:'会計待ち'});STATE.view='checkout';STATE.checkoutMethod='現金';STATE.checkoutReceived='';render();}
+function goCheckout(){syncTable(STATE.selId,{status:'会計待ち'});STATE.view='checkout';STATE.checkoutMethod='現金';STATE.checkoutReceived='';STATE.checkoutGuests='';render();}
 function goBack(){STATE.view='tables';STATE.selId=null;render();}
 
 // ═══════════════════════════════════════════
@@ -798,6 +798,16 @@ function viewCheckout(){
       </div>
     </div>
     <div class="card" style="margin-bottom:16px;">
+      <div style="color:#9ca3af;font-size:13px;margin-bottom:8px;">客数</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" id="guests-input" value="${STATE.checkoutGuests}" oninput="setGuests(this.value)" placeholder="人数" style="width:100px;">
+        <span style="color:#9ca3af;font-size:13px;">人</span>
+        <div style="display:flex;gap:6px;margin-left:8px;">
+          ${[1,2,3,4,5,6].map(n=>`<button class="btn-ghost" onclick="setGuests(${n})" style="padding:6px 12px;font-size:13px;">${n}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
       <div style="color:#9ca3af;font-size:13px;margin-bottom:10px;">支払い方法</div>
       <div style="display:flex;gap:10px;margin-bottom:16px;">${methodBtns}</div>
       ${cashSection}
@@ -817,6 +827,21 @@ function viewCheckout(){
 }
 
 function setMethod(m){STATE.checkoutMethod=m;STATE.checkoutReceived='';render();}
+function setGuests(v){
+  STATE.checkoutGuests = String(v).replace(/[^0-9]/g,'');
+  const el = document.getElementById('guests-input');
+  const selStart = el ? el.selectionStart : null;
+  const selEnd   = el ? el.selectionEnd   : null;
+  const hadFocus = el ? (document.activeElement===el) : false;
+  render();
+  if(hadFocus){
+    const newEl = document.getElementById('guests-input');
+    if(newEl){
+      newEl.focus();
+      try{ newEl.setSelectionRange(selStart, selEnd); }catch(e){}
+    }
+  }
+}
 function setReceived(v){
   STATE.checkoutReceived = v.replace(/[^0-9]/g,'');
   const el = document.getElementById('recv-input');
@@ -877,7 +902,7 @@ async function doComplete(){
   const method=STATE.checkoutMethod||'現金';
   document.getElementById('complete-btn').disabled=true;
   document.getElementById('complete-btn').textContent='処理中…';
-  await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order)});
+  await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order),guests:Number(STATE.checkoutGuests)||null});
   await syncTable(STATE.selId,{status:'空席',order_json:'[]',opened_at:null});
   const r = await sdb.get('sales',[],'created_at.desc',500);
   if(Array.isArray(r)) STATE.sales=r;
@@ -936,14 +961,14 @@ function viewSales(){
   for(const s of sales){
     const dk=businessDateStr(s.created_at||undefined);
     const mk=dk.slice(0,7),h=new Date(s.created_at||Date.now()).getHours();
-    if(!dailyMap[dk])dailyMap[dk]={total:0,count:0,cash:0,card:0,qr:0};
-    if(!monthlyMap[mk])monthlyMap[mk]={total:0,count:0};
+    if(!dailyMap[dk])dailyMap[dk]={total:0,count:0,cash:0,card:0,qr:0,guests:0};
+    if(!monthlyMap[mk])monthlyMap[mk]={total:0,count:0,guests:0};
     if(!hourlyMap[h])hourlyMap[h]={total:0,count:0};
-    dailyMap[dk].total+=s.total;dailyMap[dk].count++;
+    dailyMap[dk].total+=s.total;dailyMap[dk].count++;dailyMap[dk].guests+=Number(s.guests)||0;
     if(s.method==='現金')dailyMap[dk].cash+=s.total;
     if(s.method==='カード')dailyMap[dk].card+=s.total;
     if(s.method==='QRコード')dailyMap[dk].qr+=s.total;
-    monthlyMap[mk].total+=s.total;monthlyMap[mk].count++;
+    monthlyMap[mk].total+=s.total;monthlyMap[mk].count++;monthlyMap[mk].guests+=Number(s.guests)||0;
     hourlyMap[h].total+=s.total;hourlyMap[h].count++;
     const sitems=JSON.parse(s.items_json||'[]');
     for(const i of sitems){
@@ -955,7 +980,8 @@ function viewSales(){
   const today=todayStr();
   const todayTotal=dailyMap[today]?.total||0;
   const monthTotal=monthlyMap[today.slice(0,7)]?.total||0;
-  const totalAll=sales.reduce((a,s)=>a+s.total,0);
+  const monthGuests=monthlyMap[today.slice(0,7)]?.guests||0;
+  const avgPerGuest=monthGuests>0?Math.round(monthTotal/monthGuests):0;
 
   function hbar(label,value,maxVal,sub,color='#f5a623',lw=90){
     const pct=maxVal>0?(value/maxVal)*100:0;
@@ -975,8 +1001,8 @@ function viewSales(){
   const kpis = [
     {label:'本日の売上',value:fmt(todayTotal),color:'#f5a623'},
     {label:'今月の売上',value:fmt(monthTotal),color:'#5b8ef5'},
-    {label:'累計売上',value:fmt(totalAll),color:'#4caf80'},
-    {label:'累計件数',value:sales.length+'件',color:'#9b7fe8'},
+    {label:'今月の客数',value:monthGuests>0?monthGuests+'人':'—',color:'#4caf80'},
+    {label:'客単価',value:monthGuests>0?fmt(avgPerGuest):'—',color:'#9b7fe8'},
   ].map(c=>`<div class="card"><div style="color:#9ca3af;font-size:12px;margin-bottom:6px;">${c.label}</div><div style="color:${c.color};font-weight:800;font-size:22px;">${c.value}</div></div>`).join('');
 
   const TABS=[['daily','📅 日次'],['monthly','📆 月次'],['hourly','🕐 時間帯'],['items','🍽 商品別']];
@@ -989,7 +1015,7 @@ function viewSales(){
     const bars=rows.slice(0,14).map(([k,v])=>hbar(k,v.total,max,`${v.count}件`,'#f5a623',95)).join('');
     const detail=rows.map(([k,v])=>`<div style="padding:10px 0;border-bottom:1px solid #2e3250;">
       <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#e8eaf0;font-weight:700;">${k}</span><span style="color:#f5a623;font-weight:800;font-size:17px;">${fmt(v.total)}</span></div>
-      <div style="display:flex;gap:16px;font-size:12px;"><span style="color:#9ca3af;">${v.count}件</span>${v.cash>0?`<span style="color:#4caf80;">現金 ${fmt(v.cash)}</span>`:''}${v.card>0?`<span style="color:#5b8ef5;">カード ${fmt(v.card)}</span>`:''}${v.qr>0?`<span style="color:#9b7fe8;">QR ${fmt(v.qr)}</span>`:''}</div>
+      <div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap;"><span style="color:#9ca3af;">${v.count}件</span>${v.guests>0?`<span style="color:#4caf80;">${v.guests}人</span><span style="color:#9b7fe8;">客単価 ${fmt(Math.round(v.total/v.guests))}</span>`:''}${v.cash>0?`<span style="color:#4caf80;">現金 ${fmt(v.cash)}</span>`:''}${v.card>0?`<span style="color:#5b8ef5;">カード ${fmt(v.card)}</span>`:''}${v.qr>0?`<span style="color:#9b7fe8;">QR ${fmt(v.qr)}</span>`:''}</div>
     </div>`).join('');
     content=`<div class="card" style="margin-bottom:16px;"><div style="font-weight:700;margin-bottom:16px;">日次売上グラフ（直近14日）</div>${rows.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>
     <div class="card"><div style="font-weight:700;margin-bottom:14px;">日別明細</div>${rows.length?detail:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
