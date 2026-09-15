@@ -311,6 +311,11 @@
       <button data-f="card" onclick="setListFilter('card')">カード</button>
       <button data-f="transfer" onclick="setListFilter('transfer')">振込</button>
     </div>
+    <div class="field" style="max-width:220px;margin-top:0;margin-bottom:12px;">
+      <select id="registrantFilterSelect" onchange="setRegistrantFilter(this.value)">
+        <option value="all">登録者: すべて</option>
+      </select>
+    </div>
     <div id="listArea"><div class="empty">まだ登録された経費がありません</div></div>
   </div>
 
@@ -887,19 +892,35 @@ async function deletePettyCash(id, linkedExpenseId, hasReceipt){
 
 
 let listFilter = 'all';
+let registrantFilter = 'all';
 function isPettyExpense(e){ return (e.memo||'').includes('小口現金'); }
 function setListFilter(f){
   listFilter = f;
   document.querySelectorAll('#listFilterBar button').forEach(b=>b.classList.toggle('sel', b.dataset.f===f));
   renderList();
 }
+function setRegistrantFilter(v){
+  registrantFilter = v;
+  renderList();
+}
+function updateRegistrantFilterOptions(){
+  const sel = document.getElementById('registrantFilterSelect');
+  if(!sel) return;
+  const names = [...new Set(expenses.map(e=>displayNameFor(e.createdBy)))].sort((a,b)=>a.localeCompare(b,'ja'));
+  const current = registrantFilter;
+  sel.innerHTML = '<option value="all">登録者: すべて</option>' +
+    names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  if(names.includes(current)) sel.value = current; else { registrantFilter = 'all'; sel.value = 'all'; }
+}
 function renderList(){
+  updateRegistrantFilterOptions();
   const area = document.getElementById('listArea');
   let list = expenses;
-  if(listFilter==='petty') list = expenses.filter(isPettyExpense);
-  else if(listFilter==='cash') list = expenses.filter(e=>!isPettyExpense(e) && e.payment==='現金');
-  else if(listFilter==='card') list = expenses.filter(e=>!isPettyExpense(e) && e.payment==='クレジット');
-  else if(listFilter==='transfer') list = expenses.filter(e=>!isPettyExpense(e) && e.payment==='振込');
+  if(listFilter==='petty') list = list.filter(isPettyExpense);
+  else if(listFilter==='cash') list = list.filter(e=>!isPettyExpense(e) && e.payment==='現金');
+  else if(listFilter==='card') list = list.filter(e=>!isPettyExpense(e) && e.payment==='クレジット');
+  else if(listFilter==='transfer') list = list.filter(e=>!isPettyExpense(e) && e.payment==='振込');
+  if(registrantFilter!=='all') list = list.filter(e=>displayNameFor(e.createdBy)===registrantFilter);
   if(list.length===0){
     area.innerHTML = `<div class="empty">${expenses.length===0?'まだ登録された経費がありません':'該当する経費がありません'}</div>`;
     return;
