@@ -110,8 +110,18 @@
   </div>
 </div>
 
+<div class="login-screen" id="noAccessScreen" style="display:none;">
+  <div class="login-card">
+    <h2>経営ダッシュボード</h2>
+    <p>OWNER ONLY · MEDICOM</p>
+    <div style="font-size:13px;color:var(--ink-soft);line-height:1.8;margin:12px 0 20px;">このアカウントには経営ダッシュボードの閲覧権限がありません。</div>
+    <button class="btn btn-ghost" onclick="doLogout()">ログアウト</button>
+  </div>
+</div>
+
 <div class="roll" style="position:relative;">
-  <button class="logout-btn" id="logoutBtn" style="display:none;" onclick="doLogout()">ログアウト</button>
+  <button class="logout-btn" id="logoutBtn" style="display:none;right:90px;" onclick="location.reload()">🔄 更新</button>
+  <button class="logout-btn" id="logoutBtn2" style="display:none;" onclick="doLogout()">ログアウト</button>
   <h1>経 営 ダッシュボード</h1>
   <p>OWNER ONLY · MEDICOM</p>
 </div>
@@ -177,7 +187,7 @@
       <div>
         <div class="section-title">従業員マスタ</div>
         <div id="staffArea"><div class="loading">読み込み中...</div></div>
-        <div style="font-size:10.5px;color:var(--ink-soft);margin-top:10px;">経費帳アプリのログインメールを登録すると、経費帳の一覧にメールの代わりに名前が表示されます(未登録でもOK)</div>
+        <div style="font-size:10.5px;color:var(--ink-soft);margin-top:10px;">ログインメールを登録すると経費帳の一覧に名前が表示され、本人がホーム画面(home.html)でアカウント作成後にここで役割を割り当てるとログインできるようになります(未登録でもOK)</div>
         <div class="master-add">
           <input type="text" id="newStaffName" placeholder="新しい従業員名">
           <input type="email" id="newStaffEmail" placeholder="ログインメール(任意)">
@@ -201,6 +211,7 @@
 
 <script>
 const CATEGORIES = ["仕入高","家賃","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","租税公課","預り金","雑費"];
+const ROLE_LABELS = {owner:'店主(全権限)', manager:'店長', staff:'一般スタッフ', accounting:'経理'};
 
 const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
@@ -253,19 +264,43 @@ function rateForDate(dateStr){
 function sumBy(rows, key){ return (rows||[]).reduce((a,r)=>a+(Number(r[key])||0),0); }
 
 // ---- auth ----
+let myStaffRow = null;
 async function checkAuthAndInit(){
   const { data:{session} } = await sb.auth.getSession();
-  if(session){ showApp(); } else { showLogin(); }
+  if(!session){ showLogin(); return; }
+  await checkRoleAndShow(session);
+}
+async function checkRoleAndShow(session){
+  try{
+    const { data, error } = await sb.from('staff').select('*').eq('auth_user_id', session.user.id).maybeSingle();
+    if(error) throw error;
+    myStaffRow = data;
+    if(data && data.role==='owner'){ showApp(); } else { showNoAccess(); }
+  }catch(e){
+    console.error(e);
+    showNoAccess();
+  }
 }
 function showLogin(){
   document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('noAccessScreen').style.display='none';
   document.getElementById('mainWrap').style.display='none';
   document.getElementById('logoutBtn').style.display='none';
+  document.getElementById('logoutBtn2').style.display='none';
+}
+function showNoAccess(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('noAccessScreen').style.display='flex';
+  document.getElementById('mainWrap').style.display='none';
+  document.getElementById('logoutBtn').style.display='none';
+  document.getElementById('logoutBtn2').style.display='block';
 }
 function showApp(){
   document.getElementById('loginScreen').style.display='none';
+  document.getElementById('noAccessScreen').style.display='none';
   document.getElementById('mainWrap').style.display='block';
   document.getElementById('logoutBtn').style.display='block';
+  document.getElementById('logoutBtn2').style.display='block';
   loadMasters().then(renderAllMonthViews);
 }
 async function doLogin(){
@@ -277,15 +312,15 @@ async function doLogin(){
   const btn = document.getElementById('loginBtn');
   btn.disabled=true; btn.textContent='ログイン中...';
   try{
-    const { error } = await sb.auth.signInWithPassword({ email, password });
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if(error) throw error;
-    showApp();
+    await checkRoleAndShow(data.session);
   }catch(e){
     errEl.innerHTML = `<div class="err">ログインに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
   }
   btn.disabled=false; btn.textContent='ログイン';
 }
-async function doLogout(){ await sb.auth.signOut(); showLogin(); }
+async function doLogout(){ await sb.auth.signOut(); myStaffRow=null; showLogin(); }
 document.getElementById('loginBtn').addEventListener('click', doLogin);
 document.getElementById('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 sb.auth.onAuthStateChange((event)=>{ if(event==='SIGNED_OUT') showLogin(); });
@@ -620,11 +655,29 @@ function renderVendors(){
 function renderStaff(){
   const area = document.getElementById('staffArea');
   if(staffList.length===0){ area.innerHTML='<div class="empty">従業員が登録されていません</div>'; return; }
+  const roleOptions = (cur)=>['',...Object.keys(ROLE_LABELS)].map(r=>
+    `<option value="${r}" ${(cur||'')===r?'selected':''}>${r===''?'(権限なし)':ROLE_LABELS[r]}</option>`).join('');
   area.innerHTML = staffList.map(s=>`
-    <div class="master-item ${s.active?'':'inactive'}">
-      <span>${escapeHtml(s.name)}${s.email?`<br><span style="font-size:10.5px;color:var(--ink-soft);">${escapeHtml(s.email)}</span>`:''}</span>
-      <button class="btn btn-ghost btn-sm" onclick="deleteStaff('${s.id}')">削除</button>
+    <div class="master-item ${s.active?'':'inactive'}" style="flex-direction:column;align-items:stretch;gap:6px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span>${escapeHtml(s.name)}${s.email?`<br><span style="font-size:10.5px;color:var(--ink-soft);">${escapeHtml(s.email)}</span>`:''}</span>
+        <button class="btn btn-ghost btn-sm" onclick="deleteStaff('${s.id}')">削除</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <select style="flex:1;padding:6px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;background:var(--white);font-family:'Noto Sans JP',sans-serif;" onchange="updateStaffRole('${s.id}', this.value)">
+          ${roleOptions(s.role)}
+        </select>
+        <span style="font-size:10.5px;color:var(--ink-soft);">${s.auth_user_id?'✓ ログイン連携済み':(s.email?'未ログイン(本人がホーム画面でアカウント作成待ち)':'メール未登録')}</span>
+      </div>
     </div>`).join('');
+}
+async function updateStaffRole(id, role){
+  try{
+    const { error } = await sb.from('staff').update({role: role||null}).eq('id', id);
+    if(error) throw error;
+    toast('役割を更新しました');
+    await loadMasters();
+  }catch(e){ toast('更新に失敗しました: '+(e.message||e)); }
 }
 function renderTaxRates(){
   const area = document.getElementById('taxRateArea');
