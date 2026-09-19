@@ -1479,6 +1479,8 @@ async function linkTransferToPettyCash(amount, note){
   }catch(e){
     console.error('petty cash link insert failed', e);
     showToast('レジ金移動は記録しましたが、小口現金への反映に失敗しました: '+e.message,'error');
+    // トーストは数秒で消えて見落とされるため、確実に気づけるようアラートでも通知する。
+    alert('⚠️ レジ金移動(小口現金へ)は記録されましたが、経費帳の小口現金への反映に失敗しました。\n\n金額: '+amount+'円\n\n店主(森)に連絡してください。手動で追加してもらう必要があります。');
     return null;
   }
 }
@@ -2170,8 +2172,26 @@ window.addEventListener('load',async()=>{
       ACCESS_TOKEN=null; CURRENT_ROLE=null;
       STATE.view='login'; window._cashState=null; window._menuState=null; window._tsState=null;
       render();
+    }else if(event==='TOKEN_REFRESHED' || event==='SIGNED_IN' || event==='USER_UPDATED'){
+      // supabase-jsがバックグラウンドで自動更新したトークンを反映する。
+      // これが無いと、長時間開きっぱなしのレジ画面でトークンが古いまま(anon扱い)になり、
+      // 小口現金への連動記録などがRLSに弾かれて401で失敗する(サイレントに記録漏れになる)。
+      if(session && session.access_token){
+        ACCESS_TOKEN = session.access_token;
+      }
     }
   });
+
+  // 万一onAuthStateChangeの通知を取りこぼしても復旧できるよう、
+  // 定期的にセッションを確認してトークンを追随させる保険(5分毎)。
+  setInterval(async()=>{
+    try{
+      const { data:{session} } = await sb.auth.getSession();
+      if(session && session.access_token && session.access_token !== ACCESS_TOKEN){
+        ACCESS_TOKEN = session.access_token;
+      }
+    }catch(e){ /* 無視 */ }
+  }, 5*60*1000);
 });
 </script>
 </body>
