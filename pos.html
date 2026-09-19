@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>POSシステム</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -88,9 +89,9 @@ details summary::-webkit-details-marker{display:none;}
 // ═══════════════════════════════════════════
 // グローバル状態
 // ═══════════════════════════════════════════
-let sb = null; // supabase client
+// (Supabaseクライアントは下のSURL/SKEY定義と一緒に初期化)
 let STATE = {
-  view: 'connect',
+  view: 'login',
   tables: [], menu: [], categories: [], shop: {name:'POSシステム'},
   sales: [], cashLogs: [],
   selId: null,
@@ -218,8 +219,11 @@ function confirmAction(msg, label, onOk){
 // ═══════════════════════════════════════════
 // Supabase REST API（fetchベース・ライブラリ不使用）
 // ═══════════════════════════════════════════
-let SURL = ''; // https://xxx.supabase.co
-let SKEY = ''; // anon key
+let SURL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+let SKEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SURL, SKEY);
+let CURRENT_ROLE = null; // ログイン中のスタッフの役割(owner/manager/staff/accounting)
+let ACCESS_TOKEN = null; // ログイン中ユーザーのアクセストークン(RLS用)
 
 function sfetch(table, opts={}){
   const {select='*', filters=[], order=null, limit=null, method='GET', body=null, upsert=false} = opts;
@@ -236,7 +240,7 @@ function sfetch(table, opts={}){
   if(params.length) path += '?'+params.join('&');
   const headers = {
     'apikey': SKEY,
-    'Authorization': 'Bearer '+SKEY,
+    'Authorization': 'Bearer '+(ACCESS_TOKEN||SKEY),
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
@@ -309,67 +313,83 @@ function startRealtime(){
 }
 
 // ═══════════════════════════════════════════
-// ビュー: 接続設定
+// ビュー: ログイン / 権限なし
 // ═══════════════════════════════════════════
-function viewConnect(){
-  const url = localStorage.getItem('supa_url')||'';
-  const key = localStorage.getItem('supa_key')||'';
+function viewLogin(){
   return `
   <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
-    <div class="card" style="width:100%;max-width:500px;padding:40px;">
+    <div class="card" style="width:100%;max-width:420px;padding:40px;">
       <div style="text-align:center;margin-bottom:32px;">
         <div style="font-size:48px;margin-bottom:12px;">⬡</div>
         <div style="color:#f5a623;font-weight:900;font-size:26px;">POSシステム</div>
-        <div style="color:#9ca3af;font-size:14px;margin-top:6px;">Supabase接続設定</div>
-      </div>
-      <div style="background:#22263a;border-radius:10px;padding:16px;margin-bottom:24px;font-size:13px;color:#9ca3af;line-height:1.9;">
-        <strong style="color:#e8eaf0;">接続手順</strong><br>
-        1. <a href="https://supabase.com" target="_blank" style="color:#5b8ef5;">supabase.com</a> でプロジェクト作成<br>
-        2. SQL Editor でテーブル作成SQL・RLS無効化SQLを実行<br>
-        3. Project Settings → API でURLとキーをコピー<br>
-        4. 下に貼り付けて「接続する」を押す
+        <div style="color:#9ca3af;font-size:14px;margin-top:6px;">ログインしてください</div>
       </div>
       <div style="margin-bottom:16px;">
-        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">Project URL</div>
-        <input id="inp-url" placeholder="https://xxxxxxxxxx.supabase.co" value="${url}">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メールアドレス</div>
+        <input id="pos-login-email" type="email" autocomplete="username">
       </div>
-      <div style="margin-bottom:24px;">
-        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">anon public キー</div>
-        <input id="inp-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value="${key}" style="font-size:11px;font-family:monospace;">
+      <div style="margin-bottom:20px;">
+        <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">パスワード</div>
+        <input id="pos-login-password" type="password" autocomplete="current-password">
       </div>
-      <div id="conn-error" style="color:#e05252;font-size:12px;margin-bottom:16px;padding:10px 14px;background:rgba(224,82,82,.1);border-radius:8px;display:none;white-space:pre-line;"></div>
-      <button class="btn-primary" onclick="doConnect()" style="width:100%;padding:13px 0;font-size:16px;" id="conn-btn">接続する</button>
+      <div id="pos-login-err"></div>
+      <button class="btn-primary" onclick="doPosLogin()" style="width:100%;padding:13px 0;font-size:16px;" id="pos-login-btn">ログイン</button>
+      <div style="text-align:center;margin-top:18px;">
+        <a href="./home.html" style="color:#5b8ef5;font-size:12.5px;text-decoration:none;">アカウントが無い方はこちら</a>
+      </div>
     </div>
   </div>`;
 }
-
-async function doConnect(){
-  const url = document.getElementById('inp-url').value.trim().replace(/\/$/,'');
-  const key = document.getElementById('inp-key').value.trim();
-  const errEl = document.getElementById('conn-error');
-  const btnEl = document.getElementById('conn-btn');
-  errEl.style.display='none';
-  if(!url||!key){errEl.textContent='URLとキーを両方入力してください';errEl.style.display='block';return;}
-  btnEl.textContent='接続確認中…';btnEl.disabled=true;
+function viewNoAccess(){
+  return `
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="card" style="width:100%;max-width:420px;padding:40px;text-align:center;">
+      <div style="font-size:48px;margin-bottom:12px;">⬡</div>
+      <div style="color:#f5a623;font-weight:900;font-size:22px;margin-bottom:16px;">POSシステム</div>
+      <div style="color:#9ca3af;font-size:13px;line-height:1.8;margin-bottom:24px;">このアカウントにはレジ画面の閲覧権限がありません。<br>店主に権限設定を依頼してください。</div>
+      <button class="btn-ghost" onclick="doPosLogout()" style="width:100%;padding:12px 0;">ログアウト</button>
+    </div>
+  </div>`;
+}
+async function doPosLogin(){
+  const email = document.getElementById('pos-login-email').value.trim();
+  const password = document.getElementById('pos-login-password').value;
+  const errEl = document.getElementById('pos-login-err');
+  errEl.innerHTML='';
+  if(!email||!password){ errEl.innerHTML='<div style="color:#e05252;font-size:13px;margin-bottom:12px;">メールアドレスとパスワードを入力してください</div>'; return; }
+  const btn = document.getElementById('pos-login-btn');
+  btn.disabled=true; btn.textContent='ログイン中…';
   try{
-    SURL = url; SKEY = key;
-    // 接続テスト
-    const res = await fetch(`${url}/rest/v1/settings?select=key&limit=1`, {
-      headers:{ 'apikey':key, 'Authorization':'Bearer '+key, 'Accept':'application/json' }
-    });
-    if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(d.message||'HTTP '+res.status); }
-    localStorage.setItem('supa_url', url);
-    localStorage.setItem('supa_key', key);
-    STATE.loading = true; STATE.view = 'tables'; render();
-    await loadAll();
-    startRealtime();
-    STATE.loading = false; render();
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    await afterPosLogin(data.session);
   }catch(e){
-    SURL=''; SKEY='';
-    errEl.textContent='接続失敗: '+e.message+'\n\n・URLは https://xxxxx.supabase.co の形式ですか？\n・anon public キー（eyJ...）を使っていますか？\n・RLS無効化SQLは実行しましたか？';
-    errEl.style.display='block';
-    btnEl.textContent='接続する'; btnEl.disabled=false;
+    errEl.innerHTML = `<div style="color:#e05252;font-size:13px;margin-bottom:12px;">ログインに失敗しました: ${e.message}</div>`;
+    btn.disabled=false; btn.textContent='ログイン';
   }
+}
+function doPosLogout(){
+  confirm2('ログアウトしますか？', async ()=>{
+    if(rtWs)try{rtWs.close();}catch(e){}; rtWs=null;
+    await sb.auth.signOut();
+  });
+}
+async function afterPosLogin(session){
+  ACCESS_TOKEN = session.access_token;
+  try{ await sb.rpc('link_my_staff_account'); }catch(e){ console.error(e); }
+  try{
+    const { data, error } = await sb.from('staff').select('role').eq('auth_user_id', session.user.id).maybeSingle();
+    if(error) throw error;
+    CURRENT_ROLE = data ? data.role : null;
+  }catch(e){ console.error(e); CURRENT_ROLE = null; }
+
+  if(!CURRENT_ROLE || !['owner','manager','staff'].includes(CURRENT_ROLE)){
+    STATE.view='noAccess'; render(); return;
+  }
+  STATE.loading = true; STATE.view = 'tables'; render();
+  await loadAll();
+  startRealtime();
+  STATE.loading = false; render();
 }
 
 // ═══════════════════════════════════════════
@@ -1994,7 +2014,7 @@ function viewSettings(){
       </div>
     </div>
     <div style="margin-top:16px;text-align:center;">
-      <button onclick="doDisconnect()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;text-decoration:underline;">Supabase接続を解除する</button>
+      <button onclick="doPosLogout()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer;text-decoration:underline;">ログアウトする</button>
     </div>
   </div>`;
 }
@@ -2028,14 +2048,6 @@ async function saveShop(){
     STATE.shop=data;showToast('設定を保存しました');render();
   });
 }
-function doDisconnect(){
-  confirm2('Supabase接続を解除しますか？<br><span style="font-size:13px;color:#9ca3af;">接続解除してもデータは消えません</span>', ()=>{
-    localStorage.removeItem('supa_url');localStorage.removeItem('supa_key');
-    if(rtWs)try{rtWs.close();}catch(e){}; rtWs=null; SURL=''; SKEY='';
-    STATE.view='connect';window._cashState=null;window._menuState=null;window._tsState=null;
-    render();
-  });
-}
 
 // ═══════════════════════════════════════════
 // メインrender
@@ -2061,8 +2073,12 @@ function render(){
   ];
 
   let mainHTML='';
-  if(v==='connect'){
-    document.getElementById('app').innerHTML=viewConnect();
+  if(v==='login'){
+    document.getElementById('app').innerHTML=viewLogin();
+    return;
+  }
+  if(v==='noAccess'){
+    document.getElementById('app').innerHTML=viewNoAccess();
     return;
   }
 
@@ -2085,6 +2101,8 @@ function render(){
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
       ${badge('使用中 '+activeInUse,'#5b8ef5')}
       ${waitingChk>0?badge('会計待ち '+waitingChk,'#f5a623'):''}
+      <button onclick="location.reload()" style="background:none;border:none;color:#9ca3af;font-size:16px;padding:4px 6px;" title="更新">🔄</button>
+      ${!STATE.viewOnly?`<button onclick="doPosLogout()" style="background:none;border:none;color:#9ca3af;font-size:16px;padding:4px 6px;" title="ログアウト">🚪</button>`:''}
     </div>
   </nav>`;
 
@@ -2135,19 +2153,25 @@ window.addEventListener('load',async()=>{
   const params = new URLSearchParams(window.location.search);
   STATE.viewOnly = params.get('viewonly') === '1';
 
-  const url=localStorage.getItem('supa_url');
-  const key=localStorage.getItem('supa_key');
-  if(url&&key){
-    try{
-      SURL=url; SKEY=key;
-      const res=await fetch(`${url}/rest/v1/settings?select=key&limit=1`,{headers:{'apikey':key,'Authorization':'Bearer '+key,'Accept':'application/json'}});
-      if(!res.ok) throw new Error('auth failed');
-      STATE.loading=true; STATE.view=STATE.viewOnly?'sales':'tables'; render();
-      await loadAll();
-      if(!STATE.viewOnly) startRealtime();
-      STATE.loading=false; render();
-    }catch{SURL='';SKEY='';STATE.view='connect';render();}
-  }else{STATE.view='connect';render();}
+  if(STATE.viewOnly){
+    // 外部からのパスワード付き閲覧専用モードはログイン不要のまま
+    STATE.loading=true; STATE.view='sales'; render();
+    await loadAll();
+    STATE.loading=false; render();
+    return;
+  }
+
+  const { data:{session} } = await sb.auth.getSession();
+  if(session){ await afterPosLogin(session); }
+  else{ STATE.view='login'; render(); }
+
+  sb.auth.onAuthStateChange((event, session)=>{
+    if(event==='SIGNED_OUT'){
+      ACCESS_TOKEN=null; CURRENT_ROLE=null;
+      STATE.view='login'; window._cashState=null; window._menuState=null; window._tsState=null;
+      render();
+    }
+  });
 });
 </script>
 </body>
