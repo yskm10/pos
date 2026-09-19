@@ -139,18 +139,6 @@
     font-family:'JetBrains Mono',monospace;color:var(--ink);
   }
   .field select{font-family:'Noto Sans JP',sans-serif;}
-  .vendor-suggest{
-    position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--white);
-    border:1px solid var(--line);max-height:180px;overflow-y:auto;z-index:20;
-    box-shadow:0 4px 10px rgba(0,0,0,.1);
-  }
-  .vendor-suggest-item{padding:9px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line);font-family:'Noto Sans JP',sans-serif;}
-  .vendor-suggest-item:last-child{border-bottom:none;}
-  .vendor-suggest-item:active{background:var(--paper);}
-  .list-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
-  .list-filter button{padding:6px 12px;border:1px solid var(--line);background:var(--white);border-radius:14px;
-    font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;}
-  .list-filter button.sel{background:var(--ink);color:var(--paper);border-color:var(--ink);}
   .field .learned{
     font-size:10px;color:var(--sage);margin-top:3px;font-family:'Noto Sans JP',sans-serif;
   }
@@ -191,7 +179,6 @@
     opacity:.85;letter-spacing:.02em;
   }
   .receipt-pay{font-size:10px;color:var(--ink-soft);margin-top:2px;}
-  .receipt-by{font-size:10px;color:var(--sage);margin-top:2px;}
 
   .empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:40px 10px;line-height:1.8;}
 
@@ -209,21 +196,21 @@
   .sum-total{display:flex;justify-content:space-between;padding-top:10px;margin-top:4px;border-top:2px solid var(--ink);font-weight:700;font-size:15px;}
   .sum-total span:last-child{font-family:'JetBrains Mono',monospace;}
 
-  .sum-row-4{
-    display:grid;grid-template-columns:1.1fr 0.9fr 0.9fr 0.9fr 1fr;
+  .sum-row-3{
+    display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;
     gap:4px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px;
   }
-  .sum-row-4:last-child{border-bottom:none;}
-  .sum-row-4 span:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;}
-  .sum-row-4-head{
+  .sum-row-3:last-child{border-bottom:none;}
+  .sum-row-3 span:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;}
+  .sum-row-3-head{
     font-size:10px;color:var(--ink-soft);letter-spacing:.05em;font-weight:700;
     border-bottom:2px solid var(--ink);padding-bottom:6px;
   }
-  .sum-row-4-head span:not(:first-child){font-family:'Noto Sans JP',sans-serif;}
-  .sum-row-4-total{
+  .sum-row-3-head span:not(:first-child){font-family:'Noto Sans JP',sans-serif;}
+  .sum-row-3-total{
     border-top:2px solid var(--ink);border-bottom:none;margin-top:2px;padding-top:9px;font-weight:700;font-size:13px;
   }
-  .sum-row-4-total span:not(:first-child){font-size:12px;}
+  .sum-row-3-total span:not(:first-child){font-size:12px;}
 
   .toast{
     position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
@@ -304,18 +291,6 @@
 
   <!-- 一覧パネル -->
   <div class="panel" id="panel-list">
-    <div class="list-filter" id="listFilterBar">
-      <button class="sel" data-f="all" onclick="setListFilter('all')">すべて</button>
-      <button data-f="petty" onclick="setListFilter('petty')">小口現金</button>
-      <button data-f="cash" onclick="setListFilter('cash')">現金</button>
-      <button data-f="card" onclick="setListFilter('card')">カード</button>
-      <button data-f="transfer" onclick="setListFilter('transfer')">振込</button>
-    </div>
-    <div class="field" style="max-width:220px;margin-top:0;margin-bottom:12px;">
-      <select id="registrantFilterSelect" onchange="setRegistrantFilter(this.value)">
-        <option value="all">登録者: すべて</option>
-      </select>
-    </div>
     <div id="listArea"><div class="empty">まだ登録された経費がありません</div></div>
   </div>
 
@@ -372,14 +347,14 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const CATEGORIES = ["仕入高","家賃","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","租税公課","預り金","雑費"];
+const CATEGORIES = ["仕入高","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","租税公課","預り金","雑費"];
 
 const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // CoreServerにアップロード後、実際のURLに書き換えてください
-const PROXY_URL = "https://medicom-ai-proxy.medicom-ai-proxy.workers.dev";
+const PROXY_URL = "https://medicom.co.jp/proxy.php";
 const PROXY_SECRET = "S-djkcI9lY9yqhWupxMrQct4f9xFyrSP";
 
 let expenses = [];
@@ -397,11 +372,9 @@ function toast(msg){
 }
 
 // ---- auth ----
-let currentUserEmail = '';
 async function checkAuthAndInit(){
   const { data:{session} } = await sb.auth.getSession();
   if(session){
-    currentUserEmail = session.user?.email || '';
     showApp();
   } else {
     showLogin();
@@ -437,7 +410,6 @@ async function doLogin(){
   try{
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if(error) throw error;
-    currentUserEmail = email;
     showApp();
   }catch(e){
     errEl.innerHTML = `<div class="err">ログインに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
@@ -459,29 +431,20 @@ sb.auth.onAuthStateChange((event, session)=>{
 });
 
 // ---- data (Supabase) ----
-let vendorMasterNames = [];
-let staffEmailToName = {};
 async function loadData(){
   try{
-    const [expRes, mapRes, vendorRes, staffRes] = await Promise.all([
+    const [expRes, mapRes] = await Promise.all([
       sb.from('expenses').select('*').order('date', {ascending:false}).order('created_at', {ascending:false}),
-      sb.from('vendor_category_map').select('vendor,category'),
-      sb.from('vendors').select('name').eq('active', true).order('name'),
-      sb.from('staff').select('name,email')
+      sb.from('vendor_category_map').select('vendor,category')
     ]);
     if(expRes.error) throw expRes.error;
     if(mapRes.error) throw mapRes.error;
-    if(vendorRes.error) throw vendorRes.error;
-    if(staffRes.error) throw staffRes.error;
     expenses = (expRes.data||[]).map(e=>({
       id: e.id, date: e.date, amount: Number(e.amount), vendor: e.vendor,
-      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt, createdBy: e.created_by_email||''
+      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt
     }));
     vendorMap = {};
     (mapRes.data||[]).forEach(v=>{ vendorMap[v.vendor] = v.category; });
-    vendorMasterNames = (vendorRes.data||[]).map(v=>v.name);
-    staffEmailToName = {};
-    (staffRes.data||[]).forEach(s=>{ if(s.email) staffEmailToName[s.email] = s.name; });
   }catch(e){
     console.error('loadData error', e);
     toast('データの読み込みに失敗しました: ' + (e.message||String(e)));
@@ -498,27 +461,6 @@ async function upsertVendorMap(vendor, category){
   }catch(e){
     console.error('vendor map upsert failed', e);
   }
-}
-
-// ---- 支出先の候補(仕入先マスタ) ----
-// iOS Safariはdatalistの候補表示に対応していないため、自前で候補リストを出す
-function filterVendorSuggestions(val){
-  const box = document.getElementById('vendorSuggestions');
-  if(!box) return;
-  const q = (val||'').trim();
-  const matches = vendorMasterNames.filter(n=>!q || n.includes(q)).slice(0,20);
-  if(matches.length===0){ box.style.display='none'; box.innerHTML=''; return; }
-  box.innerHTML = matches.map(n=>`<div class="vendor-suggest-item" onmousedown="selectVendorSuggestion('${n.replace(/'/g,"\\'")}')">${escapeHtml(n)}</div>`).join('');
-  box.style.display='block';
-}
-function selectVendorSuggestion(name){
-  const input = document.getElementById('f-vendor');
-  if(input) input.value = name;
-  hideVendorSuggestions();
-}
-function hideVendorSuggestions(){
-  const box = document.getElementById('vendorSuggestions');
-  if(box) box.style.display='none';
 }
 
 // ---- tabs ----
@@ -587,22 +529,25 @@ async function runAnalyze(){
       headers:{"Content-Type":"application/json", "X-App-Secret": PROXY_SECRET},
       body: JSON.stringify({
         model:"claude-sonnet-5",
-        max_tokens:1024,
+        max_tokens:2048,
         messages:[{
           role:"user",
           content:[
             {type:"image", source:{type:"base64", media_type: currentImageType, data: currentImageBase64}},
             {type:"text", text:
-`このレシート/領収書画像から以下を抽出してください。
-出力は必ずJSONのみ。前置き・説明・マークダウンのバッククォートは一切不要。
+`この画像を解析してください。画像内に複数枚のレシート/領収書が並んで写っている場合は、それぞれを1件ずつ別々に抽出してください。1枚しか写っていない場合も、必ず要素数1のJSON配列として返してください。
 
-{
- "date": "YYYY-MM-DD形式の日付。読み取れなければ今日の日付を推定",
- "amount": 数値のみ(税込合計金額、カンマなし),
- "vendor": "店名/支払先",
- "suggested_category": "次の勘定科目のうち最も適切なもの一つ: ${CATEGORIES.join('、')}",
- "memo": "10文字程度の簡潔な摘要(品目など)"
-}`}
+出力は必ずJSON配列のみ。前置き・説明・マークダウンのバッククォートは一切不要。
+
+[
+  {
+    "date": "YYYY-MM-DD形式の日付。読み取れなければ今日の日付を推定",
+    "amount": 数値のみ(税込合計金額、カンマなし),
+    "vendor": "店名/支払先",
+    "suggested_category": "次の勘定科目のうち最も適切なもの一つ: ${CATEGORIES.join('、')}",
+    "memo": "10文字程度の簡潔な摘要(品目など)"
+  }
+]`}
           ]
         }]
       })
@@ -623,51 +568,66 @@ async function runAnalyze(){
     }catch(parseErr){
       throw new Error('AIの応答をJSONとして読み取れませんでした: ' + clean.slice(0,150));
     }
-    currentExtract = parsed;
-    renderForm(parsed);
+    const receipts = Array.isArray(parsed) ? parsed : [parsed];
+    if(receipts.length===0){
+      throw new Error('レシートを検出できませんでした');
+    }
+    currentExtract = receipts;
+    renderReceiptForms(receipts);
   }catch(err){
     console.error('analyze error', err);
     document.getElementById('analyzeErr').innerHTML =
       `<div class="err">解析に失敗しました: ${escapeHtml(err.message || String(err))}</div>`;
-    renderForm({date:new Date().toISOString().slice(0,10), amount:'', vendor:'', suggested_category:CATEGORIES[0], memo:''});
+    renderReceiptForms([{date:new Date().toISOString().slice(0,10), amount:'', vendor:'', suggested_category:CATEGORIES[0], memo:''}]);
   }
   btn.disabled = false;
   btn.textContent = 'AIで解析する';
 }
 
-function renderForm(ex){
-  const learnedCat = vendorMap[ex.vendor];
-  const finalCat = learnedCat || ex.suggested_category || CATEGORIES[0];
-  document.getElementById('formArea').innerHTML = `
+let multiReceiptExtract = [];
+
+function renderReceiptForms(receipts){
+  multiReceiptExtract = receipts;
+  const headerNote = receipts.length>1
+    ? `<div style="font-size:12px;color:var(--sage);margin-bottom:10px;">🧾 ${receipts.length}件のレシートを検出しました。内容を確認してください(不要な項目はチェックを外せます)</div>`
+    : '';
+  const cards = receipts.map((ex, i)=>{
+    const learnedCat = vendorMap[ex.vendor];
+    const finalCat = learnedCat || ex.suggested_category || CATEGORIES[0];
+    return `
     <div class="preview-card">
+      ${receipts.length>1 ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);">
+          <input type="checkbox" id="r-include-${i}" checked> 登録する
+        </label>
+        <span style="font-size:11px;color:var(--ink-soft);">${i+1}件目 / ${receipts.length}件</span>
+      </div>` : `<input type="checkbox" id="r-include-${i}" checked style="display:none;">`}
       <div class="row2">
-        <div class="field"><label>日付</label><input type="date" id="f-date" value="${ex.date||''}"></div>
-        <div class="field"><label>金額</label><input type="number" id="f-amount" value="${ex.amount||''}"></div>
+        <div class="field"><label>日付</label><input type="date" id="r-date-${i}" value="${ex.date||''}"></div>
+        <div class="field"><label>金額</label><input type="number" id="r-amount-${i}" value="${ex.amount||''}"></div>
       </div>
-      <div class="field" style="position:relative;"><label>支出先</label>
-        <input type="text" id="f-vendor" autocomplete="off" value="${(ex.vendor||'').replace(/"/g,'&quot;')}"
-          oninput="filterVendorSuggestions(this.value)" onfocus="filterVendorSuggestions(this.value)"
-          onblur="setTimeout(hideVendorSuggestions,150)">
-        <div id="vendorSuggestions" class="vendor-suggest" style="display:none;"></div>
-      </div>
+      <div class="field"><label>支出先</label><input type="text" id="r-vendor-${i}" value="${(ex.vendor||'').replace(/"/g,'&quot;')}"></div>
       <div class="field">
         <label>勘定科目</label>
-        <select id="f-category">
+        <select id="r-category-${i}">
           ${CATEGORIES.map(c=>`<option value="${c}" ${c===finalCat?'selected':''}>${c}</option>`).join('')}
         </select>
-        ${learnedCat ? `<div class="learned">✓ 「${ex.vendor}」は過去の登録から自動選択</div>` : ''}
+        ${learnedCat ? `<div class="learned">✓ 「${escapeHtml(ex.vendor||'')}」は過去の登録から自動選択</div>` : ''}
       </div>
-      <div class="field"><label>摘要</label><input type="text" id="f-memo" value="${(ex.memo||'').replace(/"/g,'&quot;')}"></div>
+      <div class="field"><label>摘要</label><input type="text" id="r-memo-${i}" value="${(ex.memo||'').replace(/"/g,'&quot;')}"></div>
       <div class="field">
         <label>支払方法</label>
-        <div class="paytoggle">
+        <div class="paytoggle" data-idx="${i}">
           <button type="button" class="sel" data-pay="現金" onclick="selectPay(this)">現金</button>
           <button type="button" data-pay="クレジット" onclick="selectPay(this)">クレジット</button>
-          <button type="button" data-pay="振込" onclick="selectPay(this)">振込</button>
         </div>
       </div>
-      <button class="btn btn-stamp" id="confirmBtn" onclick="confirmExpense()">確 認 して登録</button>
     </div>`;
+  }).join('');
+  const btnLabel = receipts.length>1 ? `選択した項目を登録` : '確 認 して登録';
+  document.getElementById('formArea').innerHTML = headerNote + cards +
+    `<button class="btn btn-stamp" id="confirmBtn" onclick="confirmAllReceipts()">${btnLabel}</button>`;
 }
 function selectPay(btn){
   btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));
@@ -677,27 +637,34 @@ function selectPay(btn){
 let pettyCashExpenseMode = false;
 let isSavingExpense = false;
 
-function confirmExpense(){
+function confirmAllReceipts(){
   if(isSavingExpense) return;
-  const pay = document.querySelector('.paytoggle button.sel').dataset.pay;
-  const vendor = document.getElementById('f-vendor').value.trim();
-  const category = document.getElementById('f-category').value;
-  const date = document.getElementById('f-date').value;
-  const amount = Number(document.getElementById('f-amount').value)||0;
-  const memo = document.getElementById('f-memo').value.trim();
-  if(!date || !amount || !vendor){
-    toast('日付・金額・支出先を確認してください');
-    return;
+  const n = multiReceiptExtract.length;
+  const toSave = [];
+  for(let i=0;i<n;i++){
+    const includeEl = document.getElementById(`r-include-${i}`);
+    if(!includeEl || !includeEl.checked) continue;
+    const date = document.getElementById(`r-date-${i}`).value;
+    const amount = Number(document.getElementById(`r-amount-${i}`).value)||0;
+    const vendor = document.getElementById(`r-vendor-${i}`).value.trim();
+    const category = document.getElementById(`r-category-${i}`).value;
+    const memo = document.getElementById(`r-memo-${i}`).value.trim();
+    const payBtn = document.querySelector(`.paytoggle[data-idx="${i}"] button.sel`);
+    const payment = payBtn ? payBtn.dataset.pay : '現金';
+    if(!date || !amount || !vendor){
+      toast(`${i+1}件目: 日付・金額・支出先を確認してください`);
+      return;
+    }
+    toSave.push({date, amount, vendor, category, memo, payment});
   }
-  const dup = expenses.find(e=> e.date===date && e.amount===amount && e.vendor===vendor);
-  if(dup){
-    const ok = confirm(`同じ内容の経費が既に登録されています。\n\n${date} ・ ${vendor} ・ ¥${amount.toLocaleString()}\n\n二重登録の可能性があります。それでも登録しますか？`);
-    if(!ok) return;
+  if(toSave.length===0){
+    toast('登録する項目がありません');
+    return;
   }
   isSavingExpense = true;
   const btn = document.getElementById('confirmBtn');
   if(btn){ btn.disabled = true; btn.textContent = '登録中...'; }
-  saveExpenseToSupabase({date, amount, vendor, category, memo, payment: pay, hasReceipt: !!currentImageBase64});
+  saveReceiptsToSupabase(toSave);
 }
 
 function base64ToBlob(base64, mime){
@@ -707,55 +674,61 @@ function base64ToBlob(base64, mime){
   return new Blob([arr], {type: mime});
 }
 
-async function saveExpenseToSupabase(entry){
+async function saveReceiptsToSupabase(entries){
   const imageToStore = currentImageBase64;
   const wasPettyCash = pettyCashExpenseMode;
-  try{
-    const { data, error } = await sb.from('expenses').insert([{
-      date: entry.date, amount: entry.amount, vendor: entry.vendor,
-      category: entry.category, memo: wasPettyCash ? (entry.memo ? entry.memo+'(小口現金)' : '(小口現金)') : entry.memo,
-      payment: entry.payment, has_receipt: entry.hasReceipt
-    }]).select();
-    if(error) throw error;
-    const saved = data[0];
-    expenses.unshift({
-      id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
-      category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt, createdBy: saved.created_by_email||''
-    });
-    if(entry.vendor) upsertVendorMap(entry.vendor, entry.category);
+  const hasReceipt = !!imageToStore;
+  let successCount = 0;
+  for(const entry of entries){
+    try{
+      const { data, error } = await sb.from('expenses').insert([{
+        date: entry.date, amount: entry.amount, vendor: entry.vendor,
+        category: entry.category, memo: wasPettyCash ? (entry.memo ? entry.memo+'(小口現金)' : '(小口現金)') : entry.memo,
+        payment: entry.payment, has_receipt: hasReceipt
+      }]).select();
+      if(error) throw error;
+      const saved = data[0];
+      expenses.unshift({
+        id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
+        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: !!saved.has_receipt
+      });
+      if(entry.vendor) upsertVendorMap(entry.vendor, entry.category);
 
-    if(entry.hasReceipt && imageToStore){
-      try{
-        const blob = base64ToBlob(imageToStore, 'image/jpeg');
-        const { error: upErr } = await sb.storage.from('receipts').upload(`${saved.id}.jpg`, blob, {contentType:'image/jpeg', upsert:true});
-        if(upErr) throw upErr;
-      }catch(e){
-        console.error('receipt upload failed', e);
-        toast('登録はできましたが、レシート画像の保存に失敗しました');
+      if(hasReceipt){
+        try{
+          const blob = base64ToBlob(imageToStore, 'image/jpeg');
+          const { error: upErr } = await sb.storage.from('receipts').upload(`${saved.id}.jpg`, blob, {contentType:'image/jpeg', upsert:true});
+          if(upErr) throw upErr;
+        }catch(e){
+          console.error('receipt upload failed', e);
+          toast(`「${entry.vendor}」は登録できましたが、レシート画像の保存に失敗しました`);
+        }
       }
-    }
 
-    if(wasPettyCash){
-      try{
-        const { error: pcErr } = await sb.from('petty_cash').insert([{
-          date: entry.date, type: '出金_経費', amount: entry.amount,
-          vendor: entry.vendor, category: entry.category, memo: entry.memo,
-          has_receipt: entry.hasReceipt, linked_expense_id: saved.id
-        }]);
-        if(pcErr) throw pcErr;
-      }catch(e){
-        console.error('petty cash link insert failed', e);
-        toast('経費は登録できましたが、小口現金の帳簿への反映に失敗しました');
+      if(wasPettyCash){
+        try{
+          const { error: pcErr } = await sb.from('petty_cash').insert([{
+            date: entry.date, type: '出金_経費', amount: entry.amount,
+            vendor: entry.vendor, category: entry.category, memo: entry.memo,
+            has_receipt: hasReceipt, linked_expense_id: saved.id
+          }]);
+          if(pcErr) throw pcErr;
+        }catch(e){
+          console.error('petty cash link insert failed', e);
+          toast(`「${entry.vendor}」は経費登録できましたが、小口現金の帳簿への反映に失敗しました`);
+        }
       }
+      successCount++;
+    }catch(e){
+      console.error('expense insert failed', e);
+      toast(`「${entry.vendor}」の登録に失敗しました: ` + (e.message||String(e)));
     }
-    toast('登録しました');
-  }catch(e){
-    console.error('expense insert failed', e);
-    toast('登録に失敗しました: ' + (e.message||String(e)));
   }
+  if(successCount>0) toast(`${successCount}件登録しました`);
   currentImageBase64 = null;
   pettyCashExpenseMode = false;
   isSavingExpense = false;
+  multiReceiptExtract = [];
   document.getElementById('previewArea').innerHTML = '';
   document.getElementById('formArea').innerHTML = '';
   document.getElementById('fileInput').value = '';
@@ -891,41 +864,13 @@ async function deletePettyCash(id, linkedExpenseId, hasReceipt){
 }
 
 
-let listFilter = 'all';
-let registrantFilter = 'all';
-function isPettyExpense(e){ return (e.memo||'').includes('小口現金'); }
-function setListFilter(f){
-  listFilter = f;
-  document.querySelectorAll('#listFilterBar button').forEach(b=>b.classList.toggle('sel', b.dataset.f===f));
-  renderList();
-}
-function setRegistrantFilter(v){
-  registrantFilter = v;
-  renderList();
-}
-function updateRegistrantFilterOptions(){
-  const sel = document.getElementById('registrantFilterSelect');
-  if(!sel) return;
-  const names = [...new Set(expenses.map(e=>displayNameFor(e.createdBy)))].sort((a,b)=>a.localeCompare(b,'ja'));
-  const current = registrantFilter;
-  sel.innerHTML = '<option value="all">登録者: すべて</option>' +
-    names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-  if(names.includes(current)) sel.value = current; else { registrantFilter = 'all'; sel.value = 'all'; }
-}
 function renderList(){
-  updateRegistrantFilterOptions();
   const area = document.getElementById('listArea');
-  let list = expenses;
-  if(listFilter==='petty') list = list.filter(isPettyExpense);
-  else if(listFilter==='cash') list = list.filter(e=>!isPettyExpense(e) && e.payment==='現金');
-  else if(listFilter==='card') list = list.filter(e=>!isPettyExpense(e) && e.payment==='クレジット');
-  else if(listFilter==='transfer') list = list.filter(e=>!isPettyExpense(e) && e.payment==='振込');
-  if(registrantFilter!=='all') list = list.filter(e=>displayNameFor(e.createdBy)===registrantFilter);
-  if(list.length===0){
-    area.innerHTML = `<div class="empty">${expenses.length===0?'まだ登録された経費がありません':'該当する経費がありません'}</div>`;
+  if(expenses.length===0){
+    area.innerHTML = '<div class="empty">まだ登録された経費がありません</div>';
     return;
   }
-  area.innerHTML = list.map(e=>`
+  area.innerHTML = expenses.map(e=>`
     <div class="receipt">
       <div class="stamp-mark">確認済</div>
       <div class="receipt-top">
@@ -934,7 +879,6 @@ function renderList(){
           <div class="receipt-vendor">${escapeHtml(e.vendor)}</div>
           <span class="receipt-cat">${e.category}</span>
           <div class="receipt-pay">${e.payment}${e.memo ? ' ・ '+escapeHtml(e.memo) : ''}</div>
-          <div class="receipt-by">登録: ${escapeHtml(displayNameFor(e.createdBy))}</div>
           <div style="margin-top:6px;display:flex;gap:6px;">
             ${e.hasReceipt ? `<button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="viewReceipt('${e.id}')">レシート画像を見る</button>` : ''}
             <button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;color:var(--stamp);border-color:var(--stamp);" onclick="deleteExpense('${e.id}', ${e.hasReceipt})">削除</button>
@@ -983,10 +927,6 @@ async function viewReceipt(id){
   }
 }
 
-function displayNameFor(email){
-  if(!email) return '不明';
-  return staffEmailToName[email] || email.split('@')[0];
-}
 function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -1007,24 +947,23 @@ function renderSummary(){
     return;
   }
   const byCat = {};
-  let cashTotal=0, creditTotal=0, transferTotal=0;
+  let cashTotal=0, creditTotal=0;
   monthExp.forEach(e=>{
-    if(!byCat[e.category]) byCat[e.category] = {cash:0, credit:0, transfer:0};
+    if(!byCat[e.category]) byCat[e.category] = {cash:0, credit:0};
     if(e.payment==='現金'){ byCat[e.category].cash += e.amount; cashTotal += e.amount; }
-    else if(e.payment==='振込'){ byCat[e.category].transfer += e.amount; transferTotal += e.amount; }
     else { byCat[e.category].credit += e.amount; creditTotal += e.amount; }
   });
-  const total = cashTotal + creditTotal + transferTotal;
-  const rows = Object.entries(byCat).sort((a,b)=>(b[1].cash+b[1].credit+b[1].transfer)-(a[1].cash+a[1].credit+a[1].transfer));
+  const total = cashTotal + creditTotal;
+  const rows = Object.entries(byCat).sort((a,b)=>(b[1].cash+b[1].credit)-(a[1].cash+a[1].credit));
 
   let html = `<div class="sum-block">
-    <div class="sum-title">勘定科目別(現金 / クレジット / 振込 / 合計)</div>
-    <div class="sum-row-4 sum-row-4-head"><span>科目</span><span>現金</span><span>クレジット</span><span>振込</span><span>合計</span></div>`;
+    <div class="sum-title">勘定科目別(現金 / クレジット / 合計)</div>
+    <div class="sum-row-3 sum-row-3-head"><span>科目</span><span>現金</span><span>クレジット</span><span>合計</span></div>`;
   rows.forEach(([cat, v])=>{
-    const t = v.cash + v.credit + v.transfer;
-    html += `<div class="sum-row-4"><span>${cat}</span><span>¥${v.cash.toLocaleString()}</span><span>¥${v.credit.toLocaleString()}</span><span>¥${v.transfer.toLocaleString()}</span><span>¥${t.toLocaleString()}</span></div>`;
+    const t = v.cash + v.credit;
+    html += `<div class="sum-row-3"><span>${cat}</span><span>¥${v.cash.toLocaleString()}</span><span>¥${v.credit.toLocaleString()}</span><span>¥${t.toLocaleString()}</span></div>`;
   });
-  html += `<div class="sum-row-4 sum-row-4-total"><span>合計</span><span>¥${cashTotal.toLocaleString()}</span><span>¥${creditTotal.toLocaleString()}</span><span>¥${transferTotal.toLocaleString()}</span><span>¥${total.toLocaleString()}</span></div>`;
+  html += `<div class="sum-row-3 sum-row-3-total"><span>合計</span><span>¥${cashTotal.toLocaleString()}</span><span>¥${creditTotal.toLocaleString()}</span><span>¥${total.toLocaleString()}</span></div>`;
   html += `</div>`;
   area.innerHTML = html;
 }
@@ -1387,7 +1326,7 @@ async function commitImport(){
     data.forEach(saved=>{
       expenses.unshift({
         id: saved.id, date: saved.date, amount: Number(saved.amount), vendor: saved.vendor,
-        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false, createdBy: saved.created_by_email||''
+        category: saved.category, memo: saved.memo||'', payment: saved.payment, hasReceipt: false
       });
     });
     toAdd.forEach(r=>{ if(r.vendor) upsertVendorMap(r.vendor, r.category); });
