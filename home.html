@@ -155,10 +155,12 @@ async function renderMenu(){
   const app = document.getElementById('app');
   const { data:{session} } = await sb.auth.getSession();
   let role = null;
+  let displayName = session.user.email;
   try{
-    const { data, error } = await sb.from('staff').select('role').eq('auth_user_id', session.user.id).maybeSingle();
+    const { data, error } = await sb.from('staff').select('role,name').eq('auth_user_id', session.user.id).maybeSingle();
     if(error) throw error;
     role = data ? data.role : null;
+    if(data && data.name) displayName = data.name;
   }catch(e){
     console.error(e);
   }
@@ -180,7 +182,7 @@ async function renderMenu(){
     </a>`).join('');
 
   app.innerHTML = `
-    <div class="role-badge">${ROLE_LABELS[role]||role} · ${escapeHtml(session.user.email)}</div>
+    <div class="role-badge">${ROLE_LABELS[role]||role} · ${escapeHtml(displayName)}</div>
     ${tiles || '<div class="empty">この役割で使える画面がありません</div>'}
   `;
 }
