@@ -58,6 +58,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // このホーム画面から行き来できるアプリ一覧(役割ごとに出し分け)
 const APPS = [
   {key:'pos', label:'レジ', desc:'注文・会計・レジ金・売上管理', emoji:'🧾', url:'./pos.html', roles:['owner','manager','staff']},
+  {key:'pos-local', label:'レジ用POS', desc:'店内専用・印刷/ドロワー対応(お店のWi-Fi内のみ接続可)', emoji:'🖨', url:'http://192.168.10.200:8080/pos.html', roles:['owner','manager','staff']},
   {key:'checklist', label:'開店・閉店チェック', desc:'毎日のチェックリスト', emoji:'✅', url:'./checklist.html', roles:['owner','manager','staff']},
   {key:'expense', label:'経費帳', desc:'レシート・小口現金の管理', emoji:'💴', url:'./expense-app.html', roles:['owner','manager','accounting']},
 ];
