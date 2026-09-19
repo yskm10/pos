@@ -659,10 +659,13 @@ function renderStaff(){
     `<option value="${r}" ${(cur||'')===r?'selected':''}>${r===''?'(権限なし)':ROLE_LABELS[r]}</option>`).join('');
   area.innerHTML = staffList.map(s=>`
     <div class="master-item ${s.active?'':'inactive'}" style="flex-direction:column;align-items:stretch;gap:6px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <span>${escapeHtml(s.name)}${s.email?`<br><span style="font-size:10.5px;color:var(--ink-soft);">${escapeHtml(s.email)}</span>`:''}</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input type="text" value="${escapeHtml(s.name)}" id="staff-name-${s.id}"
+          style="flex:1;padding:6px;border:1px solid var(--line);border-radius:2px;font-size:13px;background:var(--white);font-family:'Noto Sans JP',sans-serif;"
+          onchange="updateStaffName('${s.id}', this.value)">
         <button class="btn btn-ghost btn-sm" onclick="deleteStaff('${s.id}')">削除</button>
       </div>
+      ${s.email?`<span style="font-size:10.5px;color:var(--ink-soft);">${escapeHtml(s.email)}</span>`:''}
       <div style="display:flex;align-items:center;gap:8px;">
         <select style="flex:1;padding:6px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;background:var(--white);font-family:'Noto Sans JP',sans-serif;" onchange="updateStaffRole('${s.id}', this.value)">
           ${roleOptions(s.role)}
@@ -670,6 +673,16 @@ function renderStaff(){
         <span style="font-size:10.5px;color:var(--ink-soft);">${s.auth_user_id?'✓ ログイン連携済み':(s.email?'未ログイン(本人がホーム画面でアカウント作成待ち)':'メール未登録')}</span>
       </div>
     </div>`).join('');
+}
+async function updateStaffName(id, name){
+  name = (name||'').trim();
+  if(!name){ toast('名前を入力してください'); await loadMasters(); return; }
+  try{
+    const { error } = await sb.from('staff').update({name}).eq('id', id);
+    if(error) throw error;
+    toast('名前を更新しました');
+    await loadMasters();
+  }catch(e){ toast('更新に失敗しました: '+(e.message||e)); }
 }
 async function updateStaffRole(id, role){
   try{
