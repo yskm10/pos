@@ -286,16 +286,31 @@ async function loadAll(){
 async function syncTable(id, patch){
   STATE.tables = STATE.tables.map(t=>t.id===id?{...t,...patch}:t);
   render();
-  await sdb.update('tables',[['id','eq',id]], patch);
+  try{
+    await sdb.update('tables',[['id','eq',id]], patch);
+  }catch(e){
+    console.error(e);
+    showToast('保存に失敗しました。画面を更新してもう一度お試しください: '+e.message,'error');
+  }
 }
 
 // Realtime（WebSocket）
 let rtWs = null;
+let rtHeartbeat = null;
+let rtReconnectTimer = null;
+function stopRealtime(){
+  // ログアウトなど、意図的に切断する時は再接続させない
+  if(rtReconnectTimer){ clearTimeout(rtReconnectTimer); rtReconnectTimer=null; }
+  if(rtHeartbeat){ clearInterval(rtHeartbeat); rtHeartbeat=null; }
+  if(rtWs){ try{ rtWs.onclose=null; rtWs.close(); }catch(e){} }
+  rtWs = null;
+}
 function startRealtime(){
-  if(rtWs) try{rtWs.close();}catch(e){}
+  if(rtReconnectTimer){ clearTimeout(rtReconnectTimer); rtReconnectTimer=null; }
+  if(rtHeartbeat){ clearInterval(rtHeartbeat); rtHeartbeat=null; }
+  if(rtWs) try{ rtWs.onclose=null; rtWs.close(); }catch(e){}
   const wsUrl = SURL.replace('https://','wss://').replace('http://','ws://');
   rtWs = new WebSocket(`${wsUrl}/realtime/v1/websocket?apikey=${SKEY}&vsn=1.0.0`);
-  let joined = false;
   rtWs.onopen = ()=>{
     rtWs.send(JSON.stringify({topic:'realtime:public:tables',event:'phx_join',payload:{config:{broadcast:{self:false},postgres_changes:[{event:'*',schema:'public',table:'tables'}]}},ref:'1'}));
   };
@@ -308,8 +323,15 @@ function startRealtime(){
     }catch(e){}
   };
   rtWs.onerror = ()=>{};
-  // 30秒ごとにkeepалive
-  setInterval(()=>{ if(rtWs&&rtWs.readyState===1) rtWs.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:null})); },30000);
+  rtWs.onclose = ()=>{
+    // WiFiの瞬断やSupabase側の再起動などで切れることがあるため、ログイン中なら自動で再接続する。
+    // ここで再接続しないと、他の端末で追加・変更した注文がこの画面にリアルタイム反映されなくなる
+    // (自分の操作自体は別経路で保存されるので気づきにくく、卓の状態が食い違う原因になる)。
+    if(STATE.view==='login'||STATE.view==='noAccess') return;
+    rtReconnectTimer = setTimeout(()=>{ startRealtime(); }, 3000);
+  };
+  // 30秒ごとにkeepalive
+  rtHeartbeat = setInterval(()=>{ if(rtWs&&rtWs.readyState===1) rtWs.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:null})); },30000);
 }
 
 // ═══════════════════════════════════════════
@@ -370,7 +392,7 @@ async function doPosLogin(){
 }
 function doPosLogout(){
   confirm2('ログアウトしますか？', async ()=>{
-    if(rtWs)try{rtWs.close();}catch(e){}; rtWs=null;
+    stopRealtime();
     await sb.auth.signOut();
   });
 }
@@ -387,8 +409,13 @@ async function afterPosLogin(session){
     STATE.view='noAccess'; render(); return;
   }
   STATE.loading = true; STATE.view = 'tables'; render();
-  await loadAll();
-  startRealtime();
+  try{
+    await loadAll();
+    startRealtime();
+  }catch(e){
+    console.error(e);
+    showToast('データの読み込みに失敗しました。電波状況を確認して画面を更新してください: '+e.message,'error');
+  }
   STATE.loading = false; render();
 }
 
@@ -922,14 +949,21 @@ async function doComplete(){
   const method=STATE.checkoutMethod||'現金';
   document.getElementById('complete-btn').disabled=true;
   document.getElementById('complete-btn').textContent='処理中…';
-  await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order),guests:Number(STATE.checkoutGuests)||null});
-  await syncTable(STATE.selId,{status:'空席',order_json:'[]',opened_at:null});
-  const r = await sdb.get('sales',[],'created_at.desc',500);
-  if(Array.isArray(r)) STATE.sales=r;
-  if(method==='現金') openCashDrawer();
-  showToast(t.name+' の会計が完了しました');
-  STATE.view='tables'; STATE.selId=null;
-  render();
+  try{
+    await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order),guests:Number(STATE.checkoutGuests)||null});
+    await syncTable(STATE.selId,{status:'空席',order_json:'[]',opened_at:null});
+    const r = await sdb.get('sales',[],'created_at.desc',500);
+    if(Array.isArray(r)) STATE.sales=r;
+    if(method==='現金') openCashDrawer();
+    showToast(t.name+' の会計が完了しました');
+    STATE.view='tables'; STATE.selId=null;
+    render();
+  }catch(e){
+    console.error(e);
+    showToast('会計に失敗しました。画面を更新してもう一度お試しください: '+e.message,'error');
+    const btn = document.getElementById('complete-btn');
+    if(btn){ btn.disabled=false; btn.textContent='決済完了'; }
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -1135,7 +1169,7 @@ function viewSales(){
 // ═══════════════════════════════════════════
 function viewCash(){
   if(!window._cashState){
-    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',openTransfers:[],openTxType:'out',openTxPurpose:'normal',openTxAmount:'',openTxNote:'',closeCounts:emptyDenoms(),transfers:[],txType:'out',txPurpose:'normal',txAmount:'',txNote:''};
+    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',openTransfers:[],openTxType:'out',openTxPurpose:'normal',openTxRemoved:true,openTxAmount:'',openTxNote:'',closeCounts:emptyDenoms(),transfers:[],txType:'out',txPurpose:'normal',txRemoved:true,txAmount:'',txNote:''};
   }
   const cs = window._cashState;
   const today=todayStr();
@@ -1148,13 +1182,18 @@ function viewCash(){
   const cashSalesToday=STATE.sales.filter(s=>businessDateStr(s.created_at||undefined)===today&&s.method==='現金').reduce((a,s)=>a+s.total,0);
   const isOpen=todayLog&&!todayLog.closed_at;
   const isClosed=todayLog&&todayLog.closed_at;
-  const totalOut=cs.transfers.filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+  // 出金は「すでに抜いた後(removed:true)」か「レジに残したまま数える予定(removed:false)」かで
+  // カウント総額の扱いが変わる。すでに抜いた分はカウント総額に元から含まれていないので、そこから
+  // さらに引いてはいけない(二重控除になる)。「予定」の分だけ、カウントした金額からこれから抜く。
+  const totalOutRemoved=cs.transfers.filter(t=>t.type==='out'&&t.removed!==false).reduce((s,t)=>s+t.amount,0);
+  const totalOutPending=cs.transfers.filter(t=>t.type==='out'&&t.removed===false).reduce((s,t)=>s+t.amount,0);
+  const totalOut=totalOutRemoved+totalOutPending;
   const totalIn=cs.transfers.filter(t=>t.type==='in').reduce((s,t)=>s+t.amount,0);
-  const transferNet=totalIn-totalOut;
+  const transferNet=totalIn-totalOut; // 理論残高の計算では、抜いたタイミングに関わらず出金は全額差し引く
   const openAmt=todayLog?.open_amount||0;
   const expected=openAmt+cashSalesToday+transferNet;
-  const countedTotal=denomTotal(cs.closeCounts); // 実査額：出金前・入金後の状態で数えた金額
-  const closeAmt=countedTotal-totalOut; // 最終残高：出金予定分を差し引いた金額（この値をDBに保存・翌日へ引き継ぐ）
+  const countedTotal=denomTotal(cs.closeCounts); // 実査額：今レジの中に実際にある金額
+  const closeAmt=countedTotal-totalOutPending; // 最終残高：まだレジに残っている「予定」分だけ差し引く(この値をDBに保存・翌日へ引き継ぐ)
   const diff=closeAmt-expected;
 
   function denomRows(counts,onChange){
@@ -1190,14 +1229,17 @@ function viewCash(){
     if(!todayLog){
       const inheritMsg=prevLog?`<div style="color:#4caf80;font-size:12px;margin-bottom:14px;padding:8px 12px;background:rgba(76,175,128,.1);border-radius:8px;">✅ 前日（${prevLog.date}）の閉店額 <strong>${fmt(prevLog.close_amount)}</strong> を引き継ぎました</div>`:'';
       const openCountedTotal=denomTotal(cs.openCounts);
-      const openTotalOut=(cs.openTransfers||[]).filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+      const openTotalOutRemoved=(cs.openTransfers||[]).filter(t=>t.type==='out'&&t.removed!==false).reduce((s,t)=>s+t.amount,0);
+      const openTotalOutPending=(cs.openTransfers||[]).filter(t=>t.type==='out'&&t.removed===false).reduce((s,t)=>s+t.amount,0);
+      const openTotalOut=openTotalOutRemoved+openTotalOutPending;
       const openTotalIn=(cs.openTransfers||[]).filter(t=>t.type==='in').reduce((s,t)=>s+t.amount,0);
-      const openFinalAmount=openCountedTotal-openTotalOut;
+      const openFinalAmount=openCountedTotal-openTotalOutPending; // まだレジに残っている予定分だけ差引く
       const openTxRows=(cs.openTransfers||[]).map(t=>`
         <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;">
           <div style="display:flex;gap:10px;align-items:center;">
             <span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span>
             <span style="color:#e8eaf0;">${fmt(t.amount)}</span>
+            ${t.type==='out'?(t.removed===false?`<span style="color:#5b8ef5;font-size:11px;">🕓 まだレジに残っている(予定)</span>`:`<span style="color:#6b7280;font-size:11px;">✓ 抜いた後</span>`):''}
             ${t.purpose==='petty'?`<span style="color:#f5a623;font-size:11px;">🪙 小口へ移動</span>`:''}
             ${t.note?`<span style="color:#9ca3af;">${t.note}</span>`:''}
           </div>
@@ -1208,7 +1250,7 @@ function viewCash(){
         <div class="card" style="margin-bottom:16px;">
           <div style="color:#5b8ef5;font-weight:700;font-size:15px;margin-bottom:6px;">🌅 開店両替金を登録</div>
           ${inheritMsg}
-          <div style="color:#6b7280;font-size:11px;margin-bottom:12px;">💡 出金・入金がある場合も、まず両替金を全部数えてください（出金予定分は自動で差し引かれます）</div>
+          <div style="color:#6b7280;font-size:11px;margin-bottom:12px;">💡 今レジに実際にある金額をそのまま数えてください。すでに抜いたお金は数えなくてOKです。まだレジに残っていてこれから抜く分がある場合だけ、下の「出金」で「🕓 まだレジの中」を選んで登録すると自動で差し引かれます</div>
           ${denomRows(cs.openCounts,'updateOpenCount')}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
             <span style="color:#e8eaf0;font-weight:700;font-size:15px;">カウント総額</span>
@@ -1232,6 +1274,13 @@ function viewCash(){
                   <button onclick="window._cashState.openTxPurpose='normal';render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${cs.openTxPurpose==='normal'?'#5b8ef5':'#2e3250'};background:${cs.openTxPurpose==='normal'?'rgba(91,142,245,.13)':'transparent'};color:${cs.openTxPurpose==='normal'?'#5b8ef5':'#9ca3af'};font-weight:700;font-size:12px;">通常</button>
                   <button onclick="window._cashState.openTxPurpose='petty';render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${cs.openTxPurpose==='petty'?'#f5a623':'#2e3250'};background:${cs.openTxPurpose==='petty'?'rgba(245,166,35,.13)':'transparent'};color:${cs.openTxPurpose==='petty'?'#f5a623':'#9ca3af'};font-weight:700;font-size:12px;">🪙 小口に移動</button>
                 </div>
+              </div>
+              <div>
+                <div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">現金は今どこに？</div>
+                <div style="display:flex;gap:6px;">
+                  <button onclick="window._cashState.openTxRemoved=true;render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${cs.openTxRemoved!==false?'#5b8ef5':'#2e3250'};background:${cs.openTxRemoved!==false?'rgba(91,142,245,.13)':'transparent'};color:${cs.openTxRemoved!==false?'#5b8ef5':'#9ca3af'};font-weight:700;font-size:12px;">✓ もう抜いた</button>
+                  <button onclick="window._cashState.openTxRemoved=false;render()" style="padding:6px 12px;border-radius:7px;border:1px solid ${cs.openTxRemoved===false?'#f5a623':'#2e3250'};background:${cs.openTxRemoved===false?'rgba(245,166,35,.13)':'transparent'};color:${cs.openTxRemoved===false?'#f5a623':'#9ca3af'};font-weight:700;font-size:12px;">🕓 まだレジの中</button>
+                </div>
               </div>`:''}
               <div style="flex:1;min-width:100px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">金額</div><input type="text" inputmode="numeric" pattern="[0-9]*" id="open-tx-amount-input" value="${cs.openTxAmount}" oninput="setOpenTxAmount(this.value)" placeholder="0"></div>
               <div style="flex:2;min-width:120px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:4px;">メモ</div><input value="${cs.openTxNote}" oninput="window._cashState.openTxNote=this.value" placeholder="例: 両替追加"></div>
@@ -1239,10 +1288,10 @@ function viewCash(){
             </div>
             ${(cs.openTransfers||[]).length>0?`<div style="border-top:1px solid #2e3250;padding-top:8px;">${openTxRows}</div>`:''}
           </div>`}
-          ${(openTotalOut>0)?`
+          ${(openTotalOutPending>0)?`
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid #2e3250;">
-            <span style="color:#9ca3af;font-size:13px;">出金予定分を差引</span>
-            <span style="color:#e05252;font-weight:600;font-size:14px;">−${fmt(openTotalOut)}</span>
+            <span style="color:#9ca3af;font-size:13px;">レジに残っている出金予定分を差引</span>
+            <span style="color:#e05252;font-weight:600;font-size:14px;">−${fmt(openTotalOutPending)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
             <span style="color:#e8eaf0;font-weight:800;font-size:15px;">開店金額（最終）</span>
@@ -1272,6 +1321,7 @@ function viewCash(){
           <div style="display:flex;gap:10px;align-items:center;">
             <span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span>
             <span style="color:#e8eaf0;">${fmt(t.amount)}</span>
+            ${t.type==='out'?(t.removed===false?`<span style="color:#5b8ef5;font-size:11px;">🕓 まだレジに残っている(予定)</span>`:`<span style="color:#6b7280;font-size:11px;">✓ 抜いた後</span>`):''}
             ${t.purpose==='petty'?`<span style="color:#f5a623;font-size:11px;">🪙 小口へ移動</span>`:''}
             ${t.note?`<span style="color:#9ca3af;">${t.note}</span>`:''}
           </div>
@@ -1284,7 +1334,7 @@ function viewCash(){
         {label:'レジ金移動',value:(transferNet>=0?'+':'')+fmt(Math.abs(transferNet)),color:'#6b7280'},
         {label:'理論残高',value:fmt(expected),color:'#f5a623'},
         {label:'カウント総額',value:fmt(countedTotal),color:'#e8eaf0'},
-        ...(totalOut>0?[{label:'　　└ 出金予定分を差引',value:'−'+fmt(totalOut),color:'#e05252'}]:[]),
+        ...(totalOutPending>0?[{label:'　　└ レジに残っている出金予定分を差引',value:'−'+fmt(totalOutPending),color:'#e05252'}]:[]),
         {label:'最終残高',value:fmt(closeAmt),color:'#e8eaf0'},
       ].map(r=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #2e3250;font-size:13px;"><span style="color:#9ca3af;">${r.label}</span><span style="color:${r.color};font-weight:600;">${r.value}</span></div>`).join('');
 
@@ -1307,6 +1357,13 @@ function viewCash(){
                 <button onclick="window._cashState.txPurpose='normal';render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txPurpose==='normal'?'#5b8ef5':'#2e3250'};background:${cs.txPurpose==='normal'?'rgba(91,142,245,.13)':'transparent'};color:${cs.txPurpose==='normal'?'#5b8ef5':'#9ca3af'};font-weight:700;font-size:13px;">通常</button>
                 <button onclick="window._cashState.txPurpose='petty';render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txPurpose==='petty'?'#f5a623':'#2e3250'};background:${cs.txPurpose==='petty'?'rgba(245,166,35,.13)':'transparent'};color:${cs.txPurpose==='petty'?'#f5a623':'#9ca3af'};font-weight:700;font-size:13px;">🪙 小口に移動</button>
               </div>
+            </div>
+            <div>
+              <div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">現金は今どこに？</div>
+              <div style="display:flex;gap:6px;">
+                <button onclick="window._cashState.txRemoved=true;render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txRemoved!==false?'#5b8ef5':'#2e3250'};background:${cs.txRemoved!==false?'rgba(91,142,245,.13)':'transparent'};color:${cs.txRemoved!==false?'#5b8ef5':'#9ca3af'};font-weight:700;font-size:13px;">✓ もう抜いた</button>
+                <button onclick="window._cashState.txRemoved=false;render()" style="padding:7px 14px;border-radius:7px;border:1px solid ${cs.txRemoved===false?'#f5a623':'#2e3250'};background:${cs.txRemoved===false?'rgba(245,166,35,.13)':'transparent'};color:${cs.txRemoved===false?'#f5a623':'#9ca3af'};font-weight:700;font-size:13px;">🕓 まだレジの中</button>
+              </div>
             </div>`:''}
             <div style="flex:1;min-width:110px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">金額</div><input type="text" inputmode="numeric" pattern="[0-9]*" id="tx-amount-input" value="${cs.txAmount}" oninput="setTxAmount(this.value)" placeholder="0"></div>
             <div style="flex:2;min-width:140px;"><div style="color:#9ca3af;font-size:12px;margin-bottom:4px;">メモ</div><input value="${cs.txNote}" oninput="window._cashState.txNote=this.value" placeholder="例: 両替"></div>
@@ -1316,7 +1373,7 @@ function viewCash(){
         </div>
         <div class="card" style="border:1px solid rgba(245,166,35,.2);">
           <div style="color:#e05252;font-weight:700;font-size:15px;margin-bottom:4px;">🌙 閉店 — レジ内現金を実査</div>
-          <div style="color:#6b7280;font-size:11px;margin-bottom:12px;">💡 出金・入金がある場合も、まずレジの中身を全部数えてください（出金予定分は自動で差し引かれます）</div>
+          <div style="color:#6b7280;font-size:11px;margin-bottom:12px;">💡 今レジに実際にある金額をそのまま数えてください。営業中に抜いたお金(「✓ もう抜いた」で登録したもの)は数えなくてOKです。閉店時にこれから抜く分がある場合だけ「🕓 まだレジの中」で登録すると自動で差し引かれます</div>
           ${denomRows(cs.closeCounts,'updateCloseCount')}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid #2e3250;">
             <span style="color:#e8eaf0;font-weight:700;font-size:15px;">カウント総額</span>
@@ -1368,7 +1425,7 @@ function viewCash(){
       try{ openTransfersLog=JSON.parse(log.open_transfers_json||'[]'); }catch(e){}
       try{ closeTransfersLog=JSON.parse(log.transfers_json||'[]'); }catch(e){}
       const txLine = t => `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;">
-          <span><span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span> <span style="color:#e8eaf0;">${fmt(t.amount)}</span> ${t.purpose==='petty'?`<span style="color:#f5a623;">🪙 小口へ移動</span>`:''}</span>
+          <span><span style="color:${t.type==='out'?'#e05252':'#4caf80'};font-weight:700;">${t.type==='out'?'▼ 出金':'▲ 入金'}</span> <span style="color:#e8eaf0;">${fmt(t.amount)}</span> ${t.type==='out'&&t.removed===false?`<span style="color:#5b8ef5;">🕓 予定</span>`:''} ${t.purpose==='petty'?`<span style="color:#f5a623;">🪙 小口へ移動</span>`:''}</span>
           ${t.note?`<span style="color:#9ca3af;">${t.note}</span>`:''}
         </div>`;
 
@@ -1479,8 +1536,6 @@ async function linkTransferToPettyCash(amount, note){
   }catch(e){
     console.error('petty cash link insert failed', e);
     showToast('レジ金移動は記録しましたが、小口現金への反映に失敗しました: '+e.message,'error');
-    // トーストは数秒で消えて見落とされるため、確実に気づけるようアラートでも通知する。
-    alert('⚠️ レジ金移動(小口現金へ)は記録されましたが、経費帳の小口現金への反映に失敗しました。\n\n金額: '+amount+'円\n\n店主(森)に連絡してください。手動で追加してもらう必要があります。');
     return null;
   }
 }
@@ -1499,9 +1554,10 @@ async function addTx(){
   const n=Number(cs.txAmount);
   if(!cs.txAmount||!isFinite(n)||n<=0)return;
   const purpose = cs.txType==='out' ? cs.txPurpose : 'normal';
-  const tx = {id:Date.now(),type:cs.txType,amount:n,note:cs.txNote,purpose,pettyCashId:null};
+  const removed = cs.txType==='out' ? (cs.txRemoved!==false) : true;
+  const tx = {id:Date.now(),type:cs.txType,amount:n,note:cs.txNote,purpose,removed,pettyCashId:null};
   cs.transfers.push(tx);
-  cs.txAmount='';cs.txNote='';cs.txPurpose='normal';render();
+  cs.txAmount='';cs.txNote='';cs.txPurpose='normal';cs.txRemoved=true;render();
   if(purpose==='petty'){
     tx.pettyCashId = await linkTransferToPettyCash(n, tx.note);
     render();
@@ -1513,9 +1569,10 @@ async function addOpenTx(){
   const n=Number(cs.openTxAmount);
   if(!cs.openTxAmount||!isFinite(n)||n<=0)return;
   const purpose = cs.openTxType==='out' ? cs.openTxPurpose : 'normal';
-  const tx = {id:Date.now(),type:cs.openTxType,amount:n,note:cs.openTxNote,purpose,pettyCashId:null};
+  const removed = cs.openTxType==='out' ? (cs.openTxRemoved!==false) : true;
+  const tx = {id:Date.now(),type:cs.openTxType,amount:n,note:cs.openTxNote,purpose,removed,pettyCashId:null};
   cs.openTransfers.push(tx);
-  cs.openTxAmount='';cs.openTxNote='';cs.openTxPurpose='normal';render();
+  cs.openTxAmount='';cs.openTxNote='';cs.openTxPurpose='normal';cs.openTxRemoved=true;render();
   if(purpose==='petty'){
     tx.pettyCashId = await linkTransferToPettyCash(n, tx.note);
     render();
@@ -1541,8 +1598,8 @@ async function doOpenRegister(){
   if(STATE.viewOnly) return;
   const cs=window._cashState;
   const countedTotal=denomTotal(cs.openCounts);if(countedTotal===0)return;
-  const totalOut=(cs.openTransfers||[]).filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
-  const amount=countedTotal-totalOut; // 出金予定分を差し引いた最終的な開店金額
+  const totalOutPending=(cs.openTransfers||[]).filter(t=>t.type==='out'&&t.removed===false).reduce((s,t)=>s+t.amount,0);
+  const amount=countedTotal-totalOutPending; // まだレジに残っている予定分だけ差し引いた最終的な開店金額
   await sdb.insert('cash_logs',{date:todayStr(),open_amount:amount,open_counts:JSON.stringify(cs.openCounts),note:cs.openNote,open_transfers_json:JSON.stringify(cs.openTransfers||[]),opened_at:new Date().toISOString()});
   const r=await sdb.get('cash_logs',[],'date.desc');
   if(Array.isArray(r))STATE.cashLogs=r;
@@ -1563,10 +1620,12 @@ async function doCloseRegister(){
   const today=todayStr();
   const todayLog=STATE.cashLogs.find(l=>l.date===today);
   if(!todayLog)return;
-  const countedTotal=denomTotal(cs.closeCounts); // 数えた総額（出金前・入金後の状態）
-  const totalOut=cs.transfers.filter(t=>t.type==='out').reduce((s,t)=>s+t.amount,0);
+  const countedTotal=denomTotal(cs.closeCounts); // 数えた総額（今レジの中に実際にある金額）
+  const totalOutRemoved=cs.transfers.filter(t=>t.type==='out'&&t.removed!==false).reduce((s,t)=>s+t.amount,0);
+  const totalOutPending=cs.transfers.filter(t=>t.type==='out'&&t.removed===false).reduce((s,t)=>s+t.amount,0);
+  const totalOut=totalOutRemoved+totalOutPending;
   const totalIn=cs.transfers.filter(t=>t.type==='in').reduce((s,t)=>s+t.amount,0);
-  const closeAmt=countedTotal-totalOut; // 最終残高（出金予定分を差引済み。これを保存・翌日へ引き継ぐ）
+  const closeAmt=countedTotal-totalOutPending; // 最終残高（まだレジに残っている予定分だけ差引済み。既に抜いた分は二重に引かない）
   const cashSalesToday=STATE.sales.filter(s=>businessDateStr(s.created_at||undefined)===today&&s.method==='現金').reduce((a,s)=>a+s.total,0);
   const transferNet=totalIn-totalOut;
   const expected=(todayLog.open_amount||0)+cashSalesToday+transferNet;
@@ -2169,29 +2228,16 @@ window.addEventListener('load',async()=>{
 
   sb.auth.onAuthStateChange((event, session)=>{
     if(event==='SIGNED_OUT'){
+      stopRealtime();
       ACCESS_TOKEN=null; CURRENT_ROLE=null;
       STATE.view='login'; window._cashState=null; window._menuState=null; window._tsState=null;
       render();
-    }else if(event==='TOKEN_REFRESHED' || event==='SIGNED_IN' || event==='USER_UPDATED'){
-      // supabase-jsがバックグラウンドで自動更新したトークンを反映する。
-      // これが無いと、長時間開きっぱなしのレジ画面でトークンが古いまま(anon扱い)になり、
-      // 小口現金への連動記録などがRLSに弾かれて401で失敗する(サイレントに記録漏れになる)。
-      if(session && session.access_token){
-        ACCESS_TOKEN = session.access_token;
-      }
+    } else if((event==='TOKEN_REFRESHED'||event==='SIGNED_IN') && session){
+      // Supabaseがバックグラウンドで自動更新したトークンを、手動fetch(sfetch)用のACCESS_TOKENにも反映する。
+      // これをしないと約1時間でトークンが切れ、会計や注文追加が401で失敗し続ける(画面は動いているように見える)。
+      ACCESS_TOKEN = session.access_token;
     }
   });
-
-  // 万一onAuthStateChangeの通知を取りこぼしても復旧できるよう、
-  // 定期的にセッションを確認してトークンを追随させる保険(5分毎)。
-  setInterval(async()=>{
-    try{
-      const { data:{session} } = await sb.auth.getSession();
-      if(session && session.access_token && session.access_token !== ACCESS_TOKEN){
-        ACCESS_TOKEN = session.access_token;
-      }
-    }catch(e){ /* 無視 */ }
-  }, 5*60*1000);
 });
 </script>
 </body>
