@@ -1016,13 +1016,16 @@ function viewSales(){
     const dk=businessDateStr(s.created_at||undefined);
     const mk=dk.slice(0,7),h=new Date(s.created_at||Date.now()).getHours();
     if(!dailyMap[dk])dailyMap[dk]={total:0,count:0,cash:0,card:0,qr:0,guests:0};
-    if(!monthlyMap[mk])monthlyMap[mk]={total:0,count:0,guests:0};
+    if(!monthlyMap[mk])monthlyMap[mk]={total:0,count:0,guests:0,cash:0,card:0,qr:0};
     if(!hourlyMap[h])hourlyMap[h]={total:0,count:0};
     dailyMap[dk].total+=s.total;dailyMap[dk].count++;dailyMap[dk].guests+=Number(s.guests)||0;
     if(s.method==='現金')dailyMap[dk].cash+=s.total;
     if(s.method==='カード')dailyMap[dk].card+=s.total;
     if(s.method==='QRコード')dailyMap[dk].qr+=s.total;
     monthlyMap[mk].total+=s.total;monthlyMap[mk].count++;monthlyMap[mk].guests+=Number(s.guests)||0;
+    if(s.method==='現金')monthlyMap[mk].cash+=s.total;
+    if(s.method==='カード')monthlyMap[mk].card+=s.total;
+    if(s.method==='QRコード')monthlyMap[mk].qr+=s.total;
     hourlyMap[h].total+=s.total;hourlyMap[h].count++;
     const sitems=JSON.parse(s.items_json||'[]');
     for(const i of sitems){
@@ -1077,7 +1080,12 @@ function viewSales(){
     const rows=Object.entries(monthlyMap).sort((a,b)=>b[0].localeCompare(a[0]));
     const max=Math.max(...rows.map(r=>r[1].total),1);
     const bars=rows.slice(0,12).map(([k,v])=>hbar(k,v.total,max,`${v.count}件`,'#5b8ef5',80)).join('');
-    content=`<div class="card"><div style="font-weight:700;margin-bottom:16px;">月次売上グラフ</div>${rows.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
+    const detail=rows.map(([k,v])=>`<div style="padding:10px 0;border-bottom:1px solid #2e3250;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#e8eaf0;font-weight:700;">${k}</span><span style="color:#5b8ef5;font-weight:800;font-size:17px;">${fmt(v.total)}</span></div>
+      <div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap;"><span style="color:#9ca3af;">${v.count}件</span>${v.guests>0?`<span style="color:#4caf80;">${v.guests}人</span><span style="color:#9b7fe8;">客単価 ${fmt(Math.round(v.total/v.guests))}</span>`:''}${v.cash>0?`<span style="color:#4caf80;">現金 ${fmt(v.cash)}</span>`:''}${v.card>0?`<span style="color:#5b8ef5;">カード ${fmt(v.card)}</span>`:''}${v.qr>0?`<span style="color:#9b7fe8;">QR ${fmt(v.qr)}</span>`:''}</div>
+    </div>`).join('');
+    content=`<div class="card" style="margin-bottom:16px;"><div style="font-weight:700;margin-bottom:16px;">月次売上グラフ</div>${rows.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>
+    <div class="card"><div style="font-weight:700;margin-bottom:14px;">月別内訳</div>${rows.length?detail:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
   }else if(tab==='hourly'){
     const rows=Array.from({length:24},(_,h)=>[String(h).padStart(2,'0')+':00',hourlyMap[h]||{total:0,count:0}]);
     const max=Math.max(...rows.map(r=>r[1].total),1);
