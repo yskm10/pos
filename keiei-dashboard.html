@@ -210,7 +210,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const CATEGORIES = ["仕入高","家賃","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","租税公課","預り金","雑費"];
+const CATEGORIES = ["仕入高","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","地代家賃","租税公課","預り金","雑費"];
 const ROLE_LABELS = {owner:'店主(全権限)', manager:'店長', staff:'一般スタッフ', accounting:'経理'};
 
 const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
@@ -380,7 +380,7 @@ async function loadSummary(){
     included.forEach(e=>{
       const amt = Number(e.amount)||0;
       if(e.category==='仕入高') purchase+=amt;
-      else if(e.category==='家賃') rent+=amt;
+      else if(e.category==='地代家賃' || e.category==='家賃') rent+=amt;
       else other+=amt;
     });
     // 仕入(税抜)は経費帳に税額が別記録されていないため、設定した税率を使った概算値
@@ -408,7 +408,7 @@ async function loadSummary(){
           <div class="sum-row"><span>仕入(税込)</span><span>${yen(purchase)}${pct(purchase)}</span></div>
           <div class="sum-row"><span>仕入(税抜・${purchaseRate}%換算の概算)</span><span>${yen(purchaseExcl)}</span></div>
           <div class="sum-row"><span>人件費</span><span>${yen(payrollTotal)}${pct(payrollTotal)}</span></div>
-          <div class="sum-row"><span>家賃</span><span>${yen(rent)}${pct(rent)}</span></div>
+          <div class="sum-row"><span>地代家賃</span><span>${yen(rent)}${pct(rent)}</span></div>
           <div class="sum-row"><span>その他経費</span><span>${yen(other)}${pct(other)}</span></div>
           <div class="sum-total"><span>コスト合計(税込)</span><span>${yen(totalCost)}${pct(totalCost)}</span></div>
         </div>
@@ -443,13 +443,13 @@ async function loadLedger(){
 }
 function bucketOf(cat){
   if(cat==='仕入高') return '仕入';
-  if(cat==='家賃') return '家賃';
+  if(cat==='地代家賃' || cat==='家賃') return '地代家賃';
   return 'その他経費';
 }
 function renderLedger(){
   const area = document.getElementById('ledgerArea');
   if(ledgerExpenses.length===0){ area.innerHTML='<div class="empty">この月の経費帳データはありません</div>'; return; }
-  const groups = {'仕入':[], '家賃':[], 'その他経費':[]};
+  const groups = {'仕入':[], '地代家賃':[], 'その他経費':[]};
   ledgerExpenses.forEach(e=>groups[bucketOf(e.category)].push(e));
   let html = '<div class="ledger-grid">';
   Object.keys(groups).forEach(g=>{
