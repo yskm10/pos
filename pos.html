@@ -1176,12 +1176,17 @@ function viewSales(){
 // ビュー: レジ金管理
 // ═══════════════════════════════════════════
 function viewCash(){
-  if(!window._cashState){
-    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',openTransfers:[],openTxType:'out',openTxPurpose:'normal',openTxRemoved:true,openTxAmount:'',openTxNote:'',closeCounts:emptyDenoms(),transfers:[],txType:'out',txPurpose:'normal',txRemoved:true,txAmount:'',txNote:''};
-  }
-  const cs = window._cashState;
   const today=todayStr();
   const todayLog=STATE.cashLogs.find(l=>l.date===today);
+  if(!window._cashState){
+    // ページ再読み込み等で_cashStateが消えても、営業中の出入金はDBに保存済みの分から復元する
+    let restoredTransfers=[];
+    try{ if(todayLog&&!todayLog.closed_at&&todayLog.transfers_json) restoredTransfers=JSON.parse(todayLog.transfers_json); }catch(e){}
+    let restoredOpenTransfers=[];
+    try{ if(todayLog&&todayLog.open_transfers_json) restoredOpenTransfers=JSON.parse(todayLog.open_transfers_json); }catch(e){}
+    window._cashState={tab:'today',openCounts:emptyDenoms(),openNote:'',openTransfers:restoredOpenTransfers,openTxType:'out',openTxPurpose:'normal',openTxRemoved:true,openTxAmount:'',openTxNote:'',closeCounts:emptyDenoms(),transfers:restoredTransfers,txType:'out',txPurpose:'normal',txRemoved:true,txAmount:'',txNote:''};
+  }
+  const cs = window._cashState;
   const prevLog=[...STATE.cashLogs].sort((a,b)=>b.date.localeCompare(a.date)).find(l=>l.date!==today&&l.closed_at);
   if(prevLog&&prevLog.close_counts&&!cs._inheritDone){
     cs.openCounts=JSON.parse(typeof prevLog.close_counts==='string'?prevLog.close_counts:'{}');
@@ -1556,6 +1561,21 @@ async function unlinkTransferFromPettyCash(pettyCashId){
     showToast('小口現金側の記録の削除に失敗しました: '+e.message,'error');
   }
 }
+// 営業中に追加/削除した出入金を、閉店を待たずにその場でDBへ保存する。
+// これをしないと、閉店するまでcs.transfersはブラウザのメモリ上にしか存在せず、
+// 途中でページが再読み込みされたりタブが閉じたりすると記録がそのまま消えてしまう。
+async function persistTodayTransfers(){
+  const today=todayStr();
+  const todayLog=STATE.cashLogs.find(l=>l.date===today);
+  if(!todayLog||todayLog.closed_at) return; // 開店記録がまだ無い/既に閉店済みの場合は対象外
+  const json=JSON.stringify(window._cashState.transfers);
+  try{
+    await sdb.update('cash_logs',[['date','eq',today]],{transfers_json:json});
+    todayLog.transfers_json=json; // ローカルのキャッシュにも反映しておく
+  }catch(e){
+    showToast('出金/入金の保存に失敗しました。画面を更新してもう一度お試しください: '+e.message,'error');
+  }
+}
 async function addTx(){
   if(STATE.viewOnly) return;
   const cs=window._cashState;
@@ -1566,8 +1586,10 @@ async function addTx(){
   const tx = {id:Date.now(),type:cs.txType,amount:n,note:cs.txNote,purpose,removed,pettyCashId:null};
   cs.transfers.push(tx);
   cs.txAmount='';cs.txNote='';cs.txPurpose='normal';cs.txRemoved=true;render();
+  await persistTodayTransfers();
   if(purpose==='petty'){
     tx.pettyCashId = await linkTransferToPettyCash(n, tx.note);
+    await persistTodayTransfers();
     render();
   }
 }
@@ -1592,6 +1614,7 @@ async function removeTx(id){
   const tx = cs.transfers.find(t=>t.id===id);
   cs.transfers=cs.transfers.filter(t=>t.id!==id);
   render();
+  await persistTodayTransfers();
   if(tx && tx.pettyCashId) await unlinkTransferFromPettyCash(tx.pettyCashId);
 }
 async function removeOpenTx(id){
