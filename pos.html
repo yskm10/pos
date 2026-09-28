@@ -224,6 +224,7 @@ let SKEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
 const sb = supabase.createClient(SURL, SKEY);
 let CURRENT_ROLE = null; // ログイン中のスタッフの役割(owner/manager/staff/accounting)
 let ACCESS_TOKEN = null; // ログイン中ユーザーのアクセストークン(RLS用)
+const VIEWONLY_PASSCODE = "mimi2026"; // ?viewonly=1 の閲覧専用リンク用の合言葉
 
 function sfetch(table, opts={}){
   const {select='*', filters=[], order=null, limit=null, method='GET', body=null, upsert=false} = opts;
@@ -373,6 +374,38 @@ function viewNoAccess(){
     </div>
   </div>`;
 }
+function viewViewOnlyGate(){
+  return `
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div class="card" style="width:100%;max-width:420px;padding:40px;">
+      <div style="text-align:center;margin-bottom:28px;">
+        <div style="font-size:48px;margin-bottom:12px;">🔒</div>
+        <div style="color:#f5a623;font-weight:900;font-size:22px;">閲覧専用ページ</div>
+        <div style="color:#9ca3af;font-size:13px;margin-top:6px;">合言葉を入力してください</div>
+      </div>
+      <div style="margin-bottom:20px;">
+        <input id="viewonly-pw" type="password" placeholder="合言葉" style="width:100%;" onkeydown="if(event.key==='Enter')checkViewOnlyPasscode()">
+      </div>
+      <div id="viewonly-err"></div>
+      <button class="btn-primary" onclick="checkViewOnlyPasscode()" style="width:100%;padding:13px 0;font-size:16px;">開く</button>
+    </div>
+  </div>`;
+}
+async function startViewOnlyView(){
+  STATE.loading=true; STATE.view='sales'; render();
+  try{ await loadAll(); }catch(e){ console.error(e); }
+  STATE.loading=false; render();
+}
+function checkViewOnlyPasscode(){
+  const val=(document.getElementById('viewonly-pw').value||'').trim();
+  const errEl=document.getElementById('viewonly-err');
+  if(val!==VIEWONLY_PASSCODE){
+    errEl.innerHTML='<div style="color:#e05252;font-size:13px;margin-bottom:12px;">合言葉が違います</div>';
+    return;
+  }
+  try{ sessionStorage.setItem('pos_viewonly_ok','1'); }catch(e){}
+  startViewOnlyView();
+}
 async function doPosLogin(){
   const email = document.getElementById('pos-login-email').value.trim();
   const password = document.getElementById('pos-login-password').value;
@@ -405,10 +438,10 @@ async function afterPosLogin(session){
     CURRENT_ROLE = data ? data.role : null;
   }catch(e){ console.error(e); CURRENT_ROLE = null; }
 
-  if(!CURRENT_ROLE || !['owner','manager','staff'].includes(CURRENT_ROLE)){
+  if(!CURRENT_ROLE || !['owner','manager','staff','accounting'].includes(CURRENT_ROLE)){
     STATE.view='noAccess'; render(); return;
   }
-  STATE.loading = true; STATE.view = 'tables'; render();
+  STATE.loading = true; STATE.view = (CURRENT_ROLE==='accounting') ? 'sales' : 'tables'; render();
   try{
     await loadAll();
     startRealtime();
@@ -2151,7 +2184,9 @@ function render(){
   const activeInUse=tables.filter(t=>t.status==='使用中').length;
   const waitingChk=tables.filter(t=>t.status==='会計待ち').length;
 
-  const NAV = STATE.viewOnly ? [
+  // 売上の集計は店主(owner)・経理(accounting)のみ（店長・一般スタッフには表示しない）
+  const canSeeSales = CURRENT_ROLE==='owner' || CURRENT_ROLE==='accounting';
+  const NAV_ALL = STATE.viewOnly ? [
     {k:'sales',l:'📊 売上'},
     {k:'cash',l:'💴 レジ金'},
   ] : [
@@ -2163,8 +2198,16 @@ function render(){
     {k:'tableSettings',l:'🔧 席設定'},
     {k:'settings',l:'⚙️ 設定'},
   ];
+  // 経理は「売上」タブ以外を操作させない（会計処理・注文・メニュー編集などは対象外）
+  const NAV = (CURRENT_ROLE==='accounting' && !STATE.viewOnly)
+    ? NAV_ALL.filter(n=>n.k==='sales')
+    : NAV_ALL.filter(n=>n.k!=='sales'||canSeeSales);
 
   let mainHTML='';
+  if(v==='viewonlyGate'){
+    document.getElementById('app').innerHTML=viewViewOnlyGate();
+    return;
+  }
   if(v==='login'){
     document.getElementById('app').innerHTML=viewLogin();
     return;
@@ -2233,6 +2276,8 @@ function scheduleAutoRefresh(){
 
 function setView(v){
   if(STATE.viewOnly && !['sales','cash'].includes(v)) return;
+  if(v==='sales' && !['owner','accounting'].includes(CURRENT_ROLE)) return; // 売上は店主・経理のみ
+  if(CURRENT_ROLE==='accounting' && v!=='sales') return; // 経理は売上タブ以外を操作不可
   if(!['order','checkout'].includes(v))STATE.selId=null;
   STATE.view=v;render();
 }
@@ -2246,10 +2291,14 @@ window.addEventListener('load',async()=>{
   STATE.viewOnly = params.get('viewonly') === '1';
 
   if(STATE.viewOnly){
-    // 外部からのパスワード付き閲覧専用モードはログイン不要のまま
-    STATE.loading=true; STATE.view='sales'; render();
-    await loadAll();
-    STATE.loading=false; render();
+    // 外部からの閲覧専用モードはログイン不要だが、合言葉だけは求める
+    let alreadyOk=false;
+    try{ alreadyOk = sessionStorage.getItem('pos_viewonly_ok')==='1'; }catch(e){}
+    if(alreadyOk){
+      await startViewOnlyView();
+    }else{
+      STATE.view='viewonlyGate'; render();
+    }
     return;
   }
 
