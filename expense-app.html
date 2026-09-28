@@ -537,7 +537,9 @@ async function runAnalyze(){
             {type:"text", text:
 `この画像を解析してください。画像内に複数枚のレシート/領収書が並んで写っている場合は、それぞれを1件ずつ別々に抽出してください。1枚しか写っていない場合も、必ず要素数1のJSON配列として返してください。
 
-レシートには「合計」「お預り」「お釣り」など複数の金額が書かれていることが多いです。混同しないよう、以下の4つを全部別々のフィールドとして書き出してください(無ければ null):
+レシートには「小計」「合計」「お預り」「お釣り」など複数の金額が書かれていることが多いです。混同しないよう、見つかったものは全部別々のフィールドとして書き出してください(見つからない/読み取れないものは null):
+- subtotal: 「小計」(税抜の金額)
+- tax: 「消費税」「8%税」など税額
 - total: 「合計」「ご請求金額」など、税込の合計金額
 - tendered: 「お預り」(客が渡した金額)
 - change: 「お釣り」(返した金額)
@@ -548,6 +550,8 @@ async function runAnalyze(){
 [
   {
     "date": "YYYY-MM-DD形式の日付。読み取れなければ今日の日付を推定",
+    "subtotal": 数値のみ、または null(「小計」の金額),
+    "tax": 数値のみ、または null(税額),
     "total": 数値のみ、または null(「合計」の金額。お預り・お釣りではない),
     "tendered": 数値のみ、または null(「お預り」の金額),
     "change": 数値のみ、または null(「お釣り」の金額),
@@ -602,17 +606,31 @@ async function runAnalyze(){
       const tendered = Number(ex.tendered);
       const change = Number(ex.change);
       const total = Number(ex.total);
-      const hasTC = isFinite(tendered) && isFinite(change) && tendered>0 && change>=0;
-      const derived = hasTC ? (tendered - change) : null;
-      if(derived!=null && derived>0){
-        const amt = Number(ex.amount);
-        // amountがお釣りの値と一致してしまっている(=誤って拾っている)場合や、
-        // 算出した合計と大きくズレている場合は、算出した合計で上書きする
-        if(!isFinite(amt) || Math.abs(amt-change)<1 || Math.abs(amt-derived)>1){
-          ex.amount = derived;
+      const subtotal = Number(ex.subtotal);
+      const tax = Number(ex.tax);
+      const amt = Number(ex.amount);
+
+      // 複数の経路で「本当の合計」を算出し、amountと矛盾していれば上書きする
+      const candidates = [];
+      if(isFinite(tendered) && isFinite(change) && tendered>0 && change>=0){
+        candidates.push(tendered - change); // お預り - お釣り
+      }
+      if(isFinite(subtotal) && isFinite(tax) && subtotal>0 && tax>=0){
+        candidates.push(subtotal + tax); // 小計 + 税
+      }
+      if(isFinite(total) && total>0){
+        candidates.push(total); // 明記された合計
+      }
+
+      if(candidates.length>0){
+        // amountが候補のどれとも一致しない(=お釣りなど別の値を拾っている)場合は、
+        // 候補のうち最初に見つかったもの(お預り-お釣り優先)で上書きする
+        const matches = isFinite(amt) && candidates.some(c=>Math.abs(c-amt)<1);
+        // amountがchangeの値と一致してしまっているのは明確な誤りなので必ず上書き
+        const isChangeMistake = isFinite(change) && isFinite(amt) && Math.abs(amt-change)<1 && change>0;
+        if(!matches || isChangeMistake){
+          ex.amount = candidates[0];
         }
-      }else if(isFinite(total) && total>0){
-        ex.amount = total;
       }
     });
     currentExtract = receipts;
