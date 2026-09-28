@@ -529,7 +529,7 @@ async function runAnalyze(){
       headers:{"Content-Type":"application/json", "X-App-Secret": PROXY_SECRET},
       body: JSON.stringify({
         model:"claude-sonnet-5",
-        max_tokens:2048,
+        max_tokens:4096,
         messages:[{
           role:"user",
           content:[
@@ -561,7 +561,21 @@ async function runAnalyze(){
       throw new Error(data.error.message || JSON.stringify(data.error));
     }
     const text = data.content.map(b=>b.text||"").join("");
-    const clean = text.replace(/```json|```/g,'').trim();
+    let clean = text.replace(/```json|```/g,'').trim();
+    if(!clean){
+      // テキストブロックが空(thinking等で出力枠を使い切った場合)は、
+      // 応答が途中で切れている可能性が高いことを分かりやすく伝える
+      const stopReason = data.stop_reason ? `(stop_reason: ${data.stop_reason})` : '';
+      throw new Error('AIからの応答が空でした。画像の枚数を減らすか、もう一度お試しください ' + stopReason);
+    }
+    // 前後に説明文が付いてしまった場合の保険として、最初の[/{から最後の]/}までを抜き出す
+    const arrStart = clean.indexOf('['); const arrEnd = clean.lastIndexOf(']');
+    const objStart = clean.indexOf('{'); const objEnd = clean.lastIndexOf('}');
+    if(arrStart !== -1 && arrEnd > arrStart){
+      clean = clean.slice(arrStart, arrEnd+1);
+    }else if(objStart !== -1 && objEnd > objStart){
+      clean = clean.slice(objStart, objEnd+1);
+    }
     let parsed;
     try{
       parsed = JSON.parse(clean);
