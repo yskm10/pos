@@ -164,6 +164,18 @@
     </div>
     <input type="file" id="payslipInput" accept="application/pdf,.pdf">
     <div id="payrollPreviewArea"></div>
+
+    <div class="section-title">手入力で登録</div>
+    <div class="row2">
+      <div class="field"><label>従業員</label>
+        <input type="text" id="manualPayEmployee" list="manualPayEmployeeList" placeholder="名前を入力または選択">
+        <datalist id="manualPayEmployeeList"></datalist>
+      </div>
+      <div class="field"><label>対象月</label><input type="month" id="manualPayMonth"></div>
+    </div>
+    <div class="field"><label>支給額</label><input type="number" id="manualPayAmount" placeholder="例: 220000"></div>
+    <button class="btn btn-stamp" onclick="addManualPayroll()">登録する</button>
+
     <div class="section-title">この月の登録済み給与</div>
     <div class="month-select">
       <button onclick="shiftMonth(-1)">‹</button>
@@ -367,6 +379,8 @@ function renderAllMonthViews(){
   ['monthLabelS','monthLabelL','monthLabelP'].forEach(id=>{
     const el = document.getElementById(id); if(el) el.textContent = monthLabel(curMonth);
   });
+  const manualMonthEl = document.getElementById('manualPayMonth');
+  if(manualMonthEl) manualMonthEl.value = monthKey(curMonth);
   loadSummary();
   loadLedger();
   loadPayrollList();
@@ -618,6 +632,33 @@ async function confirmPayrollRows(){
     toast('登録に失敗しました: '+(e.message||e));
   }
 }
+async function addManualPayroll(){
+  const employee = document.getElementById('manualPayEmployee').value.trim();
+  const month = document.getElementById('manualPayMonth').value;
+  const amount = Number(document.getElementById('manualPayAmount').value);
+  if(!employee || !month || !amount){ toast('従業員・対象月・支給額を入力してください'); return; }
+  try{
+    const { error } = await sb.from('payroll').insert([{month, employee, amount}]);
+    if(error) throw error;
+    if(!staffList.some(s=>s.name===employee)){
+      await sb.from('staff').insert([{name:employee}]);
+    }
+    toast('登録しました');
+    document.getElementById('manualPayEmployee').value = '';
+    document.getElementById('manualPayAmount').value = '';
+    await loadMasters();
+    // 入力した対象月が今表示中の月と違う場合は、登録月へ表示を切り替える
+    const [y,m] = month.split('-').map(Number);
+    if(monthKey(curMonth) !== month){
+      curMonth = new Date(y, m-1, 1);
+      renderAllMonthViews();
+    }else{
+      loadPayrollList(); loadSummary();
+    }
+  }catch(e){
+    toast('登録に失敗しました: '+(e.message||e));
+  }
+}
 async function loadPayrollList(){
   const area = document.getElementById('payrollListArea');
   area.innerHTML = '<div class="loading">読み込み中...</div>';
@@ -676,6 +717,8 @@ function renderVendors(){
     </div>`).join('');
 }
 function renderStaff(){
+  const dl = document.getElementById('manualPayEmployeeList');
+  if(dl) dl.innerHTML = staffList.filter(s=>s.active).map(s=>`<option value="${escapeHtml(s.name)}">`).join('');
   const area = document.getElementById('staffArea');
   if(staffList.length===0){ area.innerHTML='<div class="empty">従業員が登録されていません</div>'; return; }
   const roleOptions = (cur)=>['',...Object.keys(ROLE_LABELS)].map(r=>
