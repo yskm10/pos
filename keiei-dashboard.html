@@ -193,6 +193,29 @@
           <input type="email" id="newStaffEmail" placeholder="ログインメール(任意)">
           <button class="btn btn-primary btn-sm" onclick="addStaff()">追加</button>
         </div>
+
+        <div class="section-title" style="margin-top:26px;">ログインアカウントを新規作成</div>
+        <div style="font-size:10.5px;color:var(--ink-soft);margin-bottom:8px;">本人の自己登録を待たず、ここで仮パスワード付きのログインアカウントを即発行できます。発行後、メールアドレスと仮パスワードを本人に伝えてください(本人が後で自分でパスワードを変更できます)</div>
+        <div class="field"><label>名前</label><input type="text" id="newAcctName" placeholder="例: 山田太郎"></div>
+        <div class="row2">
+          <div class="field"><label>ログインメール</label><input type="email" id="newAcctEmail" placeholder="example@mail.com"></div>
+          <div class="field"><label>役割</label>
+            <select id="newAcctRole">
+              <option value="owner">店主(全権限)</option>
+              <option value="manager">店長</option>
+              <option value="staff">一般スタッフ</option>
+              <option value="accounting">経理</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>仮パスワード</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="newAcctPassword" placeholder="6文字以上" style="flex:1;">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="genAcctPassword()">自動生成</button>
+          </div>
+        </div>
+        <div id="newAcctMsg"></div>
+        <button class="btn btn-stamp" id="newAcctBtn" onclick="createStaffAccount()">アカウントを作成</button>
       </div>
     </div>
     <div class="section-title">税率設定(仕入の税抜換算に使用)</div>
@@ -210,7 +233,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const CATEGORIES = ["仕入高","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","地代家賃","租税公課","預り金","雑費"];
+const CATEGORIES = ["仕入高","家賃","通信交通費","車両費","接待交際費","会議費","福利厚生費","事務用品費","消耗品費","諸会費","保険料","広告宣伝費","水道光熱費","租税公課","預り金","雑費"];
 const ROLE_LABELS = {owner:'店主(全権限)', manager:'店長', staff:'一般スタッフ', accounting:'経理'};
 
 const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
@@ -380,7 +403,7 @@ async function loadSummary(){
     included.forEach(e=>{
       const amt = Number(e.amount)||0;
       if(e.category==='仕入高') purchase+=amt;
-      else if(e.category==='地代家賃' || e.category==='家賃') rent+=amt;
+      else if(e.category==='家賃') rent+=amt;
       else other+=amt;
     });
     // 仕入(税抜)は経費帳に税額が別記録されていないため、設定した税率を使った概算値
@@ -408,7 +431,7 @@ async function loadSummary(){
           <div class="sum-row"><span>仕入(税込)</span><span>${yen(purchase)}${pct(purchase)}</span></div>
           <div class="sum-row"><span>仕入(税抜・${purchaseRate}%換算の概算)</span><span>${yen(purchaseExcl)}</span></div>
           <div class="sum-row"><span>人件費</span><span>${yen(payrollTotal)}${pct(payrollTotal)}</span></div>
-          <div class="sum-row"><span>地代家賃</span><span>${yen(rent)}${pct(rent)}</span></div>
+          <div class="sum-row"><span>家賃</span><span>${yen(rent)}${pct(rent)}</span></div>
           <div class="sum-row"><span>その他経費</span><span>${yen(other)}${pct(other)}</span></div>
           <div class="sum-total"><span>コスト合計(税込)</span><span>${yen(totalCost)}${pct(totalCost)}</span></div>
         </div>
@@ -443,13 +466,13 @@ async function loadLedger(){
 }
 function bucketOf(cat){
   if(cat==='仕入高') return '仕入';
-  if(cat==='地代家賃' || cat==='家賃') return '地代家賃';
+  if(cat==='家賃') return '家賃';
   return 'その他経費';
 }
 function renderLedger(){
   const area = document.getElementById('ledgerArea');
   if(ledgerExpenses.length===0){ area.innerHTML='<div class="empty">この月の経費帳データはありません</div>'; return; }
-  const groups = {'仕入':[], '地代家賃':[], 'その他経費':[]};
+  const groups = {'仕入':[], '家賃':[], 'その他経費':[]};
   ledgerExpenses.forEach(e=>groups[bucketOf(e.category)].push(e));
   let html = '<div class="ledger-grid">';
   Object.keys(groups).forEach(g=>{
@@ -764,6 +787,45 @@ async function deleteStaff(id){
     if(error) throw error;
     await loadMasters();
   }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
+}
+function genAcctPassword(){
+  // 見間違えやすい文字(0/O, 1/l/I など)を避けた8文字のランダム仮パスワード
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let pw = '';
+  for(let i=0;i<8;i++) pw += chars[Math.floor(Math.random()*chars.length)];
+  document.getElementById('newAcctPassword').value = pw;
+}
+async function createStaffAccount(){
+  const name = document.getElementById('newAcctName').value.trim();
+  const email = document.getElementById('newAcctEmail').value.trim();
+  const role = document.getElementById('newAcctRole').value;
+  const password = document.getElementById('newAcctPassword').value;
+  const msgEl = document.getElementById('newAcctMsg');
+  const btn = document.getElementById('newAcctBtn');
+  msgEl.innerHTML = '';
+  if(!name || !email || !password){ msgEl.innerHTML = '<div class="err">名前・メールアドレス・仮パスワードを入力してください</div>'; return; }
+  if(password.length < 6){ msgEl.innerHTML = '<div class="err">パスワードは6文字以上にしてください</div>'; return; }
+  btn.disabled = true; btn.textContent = '作成中...';
+  try{
+    const { data, error } = await sb.functions.invoke('admin-create-staff-user', {
+      body: { name, email, password, role },
+    });
+    if(error){
+      // Edge Functionがエラーレスポンスを返した場合、本文にメッセージが入っていることがある
+      let detail = error.message || String(error);
+      try{ const body = await error.context.json(); if(body && body.error) detail = body.error; }catch(_){}
+      throw new Error(detail);
+    }
+    if(data && data.error) throw new Error(data.error);
+    document.getElementById('newAcctName').value = '';
+    document.getElementById('newAcctEmail').value = '';
+    document.getElementById('newAcctPassword').value = '';
+    msgEl.innerHTML = `<div style="color:var(--sage);font-size:12px;margin-top:8px;">作成しました。メールアドレスと仮パスワードを本人に伝えてください(home.htmlからログインできます)</div>`;
+    await loadMasters();
+  }catch(e){
+    msgEl.innerHTML = `<div class="err">作成に失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
+  }
+  btn.disabled = false; btn.textContent = 'アカウントを作成';
 }
 
 checkAuthAndInit();
