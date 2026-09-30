@@ -126,6 +126,81 @@ function businessDateStr(d){
   const day = String(shifted.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
+// ── 日本の祝日判定(固定日+ハッピーマンデー+春分/秋分の近似計算+振替休日+国民の休日) ──
+const DOW_LABELS = ['日','月','火','水','木','金','土'];
+function ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function jpEquinoxDay(year, type){
+  // 国立天文台の近似式(1980〜2099年で有効)
+  const base = type==='spring' ? 20.8431 : 23.2488;
+  return Math.floor(base + 0.242194*(year-1980) - Math.floor((year-1980)/4));
+}
+function nthMonday(year, month, n){
+  let count=0;
+  for(let day=1; day<=31; day++){
+    const dt = new Date(year, month-1, day);
+    if(dt.getMonth()!==month-1) break;
+    if(dt.getDay()===1){ count++; if(count===n) return day; }
+  }
+  return null;
+}
+let _jpHolidayCache = {};
+function buildJpHolidays(year){
+  const H = {};
+  const add=(m,d,name)=>{ H[`${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`]=name; };
+  add(1,1,'元日');
+  const seijin=nthMonday(year,1,2); if(seijin) add(1,seijin,'成人の日');
+  add(2,11,'建国記念の日');
+  add(2,23,'天皇誕生日');
+  add(3,jpEquinoxDay(year,'spring'),'春分の日');
+  add(4,29,'昭和の日');
+  add(5,3,'憲法記念日'); add(5,4,'みどりの日'); add(5,5,'こどもの日');
+  const umi=nthMonday(year,7,3); if(umi) add(7,umi,'海の日');
+  add(8,11,'山の日');
+  const keirou=nthMonday(year,9,3); if(keirou) add(9,keirou,'敬老の日');
+  add(9,jpEquinoxDay(year,'autumn'),'秋分の日');
+  const sports=nthMonday(year,10,2); if(sports) add(10,sports,'スポーツの日');
+  add(11,3,'文化の日'); add(11,23,'勤労感謝の日');
+  // 振替休日: 祝日が日曜なら、その翌日以降で最初の非祝日を振替休日にする
+  Object.keys(H).sort().forEach(dstr=>{
+    const dt = new Date(dstr+'T00:00:00');
+    if(dt.getDay()===0){
+      const next = new Date(dt);
+      do{ next.setDate(next.getDate()+1); }while(H[ymd(next)]);
+      H[ymd(next)] = '振替休日';
+    }
+  });
+  // 国民の休日: 前後を祝日に挟まれた平日
+  Object.keys(H).sort().forEach(dstr=>{
+    const dt = new Date(dstr+'T00:00:00');
+    const next = new Date(dt); next.setDate(next.getDate()+1);
+    const next2 = new Date(next); next2.setDate(next2.getDate()+1);
+    if(!H[ymd(next)] && next.getDay()!==0 && next.getDay()!==6 && H[ymd(next2)]){
+      H[ymd(next)] = '国民の休日';
+    }
+  });
+  return H;
+}
+function jpHolidayName(dateStr){
+  const year = Number(dateStr.slice(0,4));
+  if(!_jpHolidayCache[year]) _jpHolidayCache[year] = buildJpHolidays(year);
+  return _jpHolidayCache[year][dateStr] || null;
+}
+function isJpHolidayEve(dateStr){
+  const dt = new Date(dateStr+'T00:00:00'); dt.setDate(dt.getDate()+1);
+  return !!jpHolidayName(ymd(dt));
+}
+// 日付+曜日を、土日祝で色分けしたHTMLラベルにする
+function dateBadgeHtml(k){
+  const dow = new Date(k+'T00:00:00').getDay();
+  const hName = jpHolidayName(k);
+  const eve = !hName && isJpHolidayEve(k);
+  let color = '#e8eaf0';
+  if(hName || dow===0) color = '#e05252'; // 祝日・日曜は赤
+  else if(dow===6) color = '#5b8ef5'; // 土曜は青
+  else if(eve) color = '#f5a623'; // 祝前日はオレンジ
+  const tag = hName ? `<span style="font-size:10px;color:#e05252;margin-left:4px;">祝</span>` : (eve ? `<span style="font-size:10px;color:#f5a623;margin-left:4px;">祝前</span>` : '');
+  return `<span style="color:${color};">${k}(${DOW_LABELS[dow]})</span>${tag}`;
+}
 const nowStr    = () => new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 function elapsed(t){if(!t)return'';const m=Math.floor((Date.now()-new Date(t))/60000);return m<60?m+'分':Math.floor(m/60)+'時間'+m%60+'分';}
 function padStr(str,w){let n=0;for(const c of str)n+=c.charCodeAt(0)>0x7f?2:1;return str+' '.repeat(Math.max(0,w-n));}
@@ -1102,12 +1177,36 @@ function viewSales(){
   if(tab==='daily'){
     const rows=Object.entries(dailyMap).sort((a,b)=>b[0].localeCompare(a[0]));
     const max=Math.max(...rows.map(r=>r[1].total),1);
-    const bars=rows.slice(0,14).map(([k,v])=>hbar(k,v.total,max,`${v.count}件`,'#f5a623',95)).join('');
+    const bars=rows.slice(0,14).map(([k,v])=>hbar(dateBadgeHtml(k),v.total,max,`${v.count}件`,'#f5a623',140)).join('');
     const detail=rows.map(([k,v])=>`<div style="padding:10px 0;border-bottom:1px solid #2e3250;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:#e8eaf0;font-weight:700;">${k}</span><span style="color:#f5a623;font-weight:800;font-size:17px;">${fmt(v.total)}</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-weight:700;">${dateBadgeHtml(k)}</span><span style="color:#f5a623;font-weight:800;font-size:17px;">${fmt(v.total)}</span></div>
       <div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap;"><span style="color:#9ca3af;">${v.count}件</span>${v.guests>0?`<span style="color:#4caf80;">${v.guests}人</span><span style="color:#9b7fe8;">客単価 ${fmt(Math.round(v.total/v.guests))}</span>`:''}${v.cash>0?`<span style="color:#4caf80;">現金 ${fmt(v.cash)}</span>`:''}${v.card>0?`<span style="color:#5b8ef5;">カード ${fmt(v.card)}</span>`:''}${v.qr>0?`<span style="color:#9b7fe8;">QR ${fmt(v.qr)}</span>`:''}</div>
     </div>`).join('');
+
+    // 曜日別・祝日/祝前日別の平均売上
+    const dowStats=Array.from({length:7},()=>({total:0,count:0}));
+    let holStats={total:0,count:0}, holEveStats={total:0,count:0};
+    rows.forEach(([k,v])=>{
+      const dow=new Date(k+'T00:00:00').getDay();
+      dowStats[dow].total+=v.total; dowStats[dow].count++;
+      const hName=jpHolidayName(k);
+      if(hName){ holStats.total+=v.total; holStats.count++; }
+      else if(isJpHolidayEve(k)){ holEveStats.total+=v.total; holEveStats.count++; }
+    });
+    const dowOrder=[1,2,3,4,5,6,0]; // 月〜日の順で表示
+    const avgEntries=[
+      ...dowOrder.map(d=>({label:DOW_LABELS[d]+'曜日',stat:dowStats[d],color:d===0?'#e05252':d===6?'#5b8ef5':'#f5a623'})),
+      {label:'祝日',stat:holStats,color:'#e05252'},
+      {label:'祝前日',stat:holEveStats,color:'#f5a623'},
+    ];
+    const avgMax=Math.max(...avgEntries.map(e=>e.stat.count>0?e.stat.total/e.stat.count:0),1);
+    const avgBars=avgEntries.map(e=>{
+      const avg = e.stat.count>0 ? Math.round(e.stat.total/e.stat.count) : 0;
+      return hbar(e.label, avg, avgMax, e.stat.count>0?`${e.stat.count}日分`:'データなし', e.color, 70);
+    }).join('');
+
     content=`<div class="card" style="margin-bottom:16px;"><div style="font-weight:700;margin-bottom:16px;">日次売上グラフ（直近14日）</div>${rows.length?bars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>
+    <div class="card" style="margin-bottom:16px;"><div style="font-weight:700;margin-bottom:4px;">曜日別の平均売上</div><div style="color:#6b7280;font-size:11px;margin-bottom:14px;">祝日・祝前日は曜日に関わらず別集計(該当日は曜日の集計にも重複して含まれます)</div>${rows.length?avgBars:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>
     <div class="card"><div style="font-weight:700;margin-bottom:14px;">日別明細</div>${rows.length?detail:'<div style="color:#6b7280;font-size:13px;">データなし</div>'}</div>`;
   }else if(tab==='monthly'){
     const rows=Object.entries(monthlyMap).sort((a,b)=>b[0].localeCompare(a[0]));
