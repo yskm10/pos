@@ -1959,11 +1959,35 @@ function removeOpt(i){
 }
 
 // ── ドラッグ&ドロップ並べ替え ────────────────────────────────
+// PC(マウス)はHTML5ネイティブD&D、iPad/スマホ(タッチ)は独自実装で動かす
+// (iOS SafariはdraggableのネイティブD&Dに対応していないため)
 let _dragSrc = null;
+let _touchDragging = false;
+
+function reorderItems(srcItem, targetItem){
+  if(!srcItem || !targetItem || srcItem === targetItem) return;
+  // 同じカテゴリー内のみ並べ替え
+  const srcCat = srcItem.dataset.cat;
+  const dstCat = targetItem.dataset.cat;
+  if(srcCat !== dstCat){ showToast('同じカテゴリー内でのみ並べ替えできます','error'); return; }
+  // DOM上で入れ替え
+  const parent = targetItem.parentNode;
+  const items = [...parent.querySelectorAll('.menu-sort-item')];
+  const srcIdx = items.indexOf(srcItem);
+  const dstIdx = items.indexOf(targetItem);
+  if(srcIdx < dstIdx){
+    parent.insertBefore(srcItem, targetItem.nextSibling);
+  } else {
+    parent.insertBefore(srcItem, targetItem);
+  }
+  // 新しい順序でsort_orderを更新
+  saveSortOrder(parent);
+}
 
 function initMenuSort(){
   document.querySelectorAll('.menu-sort-list').forEach(list=>{
     list.querySelectorAll('.menu-sort-item').forEach(item=>{
+      // ── マウス(PC) ──
       item.addEventListener('dragstart', e=>{
         _dragSrc = item;
         e.dataTransfer.effectAllowed = 'move';
@@ -1987,22 +2011,46 @@ function initMenuSort(){
         e.preventDefault();
         if(!_dragSrc || _dragSrc === item) return;
         item.style.borderColor = '';
-        // 同じカテゴリー内のみ並べ替え
-        const srcCat = _dragSrc.dataset.cat;
-        const dstCat = item.dataset.cat;
-        if(srcCat !== dstCat){ showToast('同じカテゴリー内でのみ並べ替えできます','error'); return; }
-        // DOM上で入れ替え
-        const parent = item.parentNode;
-        const items = [...parent.querySelectorAll('.menu-sort-item')];
-        const srcIdx = items.indexOf(_dragSrc);
-        const dstIdx = items.indexOf(item);
-        if(srcIdx < dstIdx){
-          parent.insertBefore(_dragSrc, item.nextSibling);
-        } else {
-          parent.insertBefore(_dragSrc, item);
+        reorderItems(_dragSrc, item);
+      });
+
+      // ── タッチ(iPad/スマホ) ── ドラッグハンドル(⠿)からのみ開始
+      const handle = item.querySelector('.drag-handle');
+      if(handle){
+        handle.addEventListener('touchstart', e=>{
+          _dragSrc = item;
+          _touchDragging = true;
+          item.style.opacity = '0.4';
+          e.preventDefault();
+        }, {passive:false});
+      }
+      item.addEventListener('touchmove', e=>{
+        if(!_touchDragging || _dragSrc !== item) return;
+        e.preventDefault();
+        const t = e.touches[0];
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        const over = el ? el.closest('.menu-sort-item') : null;
+        document.querySelectorAll('.menu-sort-item').forEach(i=>i.style.borderColor='');
+        if(over && over !== _dragSrc){
+          over.style.borderColor = '#f5a623';
         }
-        // 新しい順序でsort_orderを更新
-        saveSortOrder(parent);
+      }, {passive:false});
+      item.addEventListener('touchend', e=>{
+        if(!_touchDragging || _dragSrc !== item) return;
+        _touchDragging = false;
+        item.style.opacity = '1';
+        document.querySelectorAll('.menu-sort-item').forEach(i=>i.style.borderColor='');
+        const t = e.changedTouches[0];
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        const over = el ? el.closest('.menu-sort-item') : null;
+        if(over) reorderItems(_dragSrc, over);
+        _dragSrc = null;
+      });
+      item.addEventListener('touchcancel', e=>{
+        _touchDragging = false;
+        item.style.opacity = '1';
+        document.querySelectorAll('.menu-sort-item').forEach(i=>i.style.borderColor='');
+        _dragSrc = null;
       });
     });
   });
@@ -2126,7 +2174,12 @@ async function saveMenuItem(){
   if(catEl) ms.form.category=catEl.value;
   if(!ms.form.name||!ms.form.price){showToast('名前と価格を入力してください','error');return;}
   const opts=ms.form.options||[];  if(ms.editId){await sdb.update('menu',[['id','eq',ms.editId]],{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price),options_json:JSON.stringify(opts)});ms.editId=null;}
-  else{await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price),options_json:JSON.stringify(opts)});}
+  else{
+    // 新規メニューは同じカテゴリー内の一番下(既存の最大sort_order+1)に追加する
+    const sameCat = STATE.menu.filter(m=>m.category===ms.form.category);
+    const maxOrder = sameCat.length ? Math.max(...sameCat.map(m=>Number(m.sort_order)||0)) : 0;
+    await sdb.insert('menu',{category:ms.form.category,name:ms.form.name,price:Number(ms.form.price),options_json:JSON.stringify(opts),sort_order:maxOrder+1});
+  }
   ms.form={name:'',price:'',category:STATE.categories[0]||''};ms.error='';
   const r=await sdb.get('menu',[],'sort_order');
   if(Array.isArray(r))STATE.menu=r.filter(m=>m.active!==false&&m.active!=='false');
