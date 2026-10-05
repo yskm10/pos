@@ -327,6 +327,7 @@
     <button class="btn btn-primary" onclick="openPettyForm('入金')">入金を記録</button>
     <button class="btn btn-ghost" onclick="openPettyForm('出金_釣銭')">釣銭用の出金を記録</button>
     <button class="btn btn-stamp" onclick="startPettyCashExpense()">レシートで経費出金を記録</button>
+    <button class="btn btn-ghost" onclick="openCountForm()">月末の実査(現金を数えて差異を調整)</button>
     <div id="pettyFormArea"></div>
     <div id="pettyLedgerArea" style="margin-top:16px;"></div>
   </div>
@@ -856,6 +857,76 @@ async function submitPettyForm(type){
 
 let pettyCashRows = [];
 
+// ---- 実査(月末の現金カウント)と差異調整 ----
+const PETTY_IN_TYPES = ['入金','差異_過剰'];
+function pettyBalanceAsOf(dateStr){
+  return pettyCashRows.reduce((b,r)=>{
+    if(r.date > dateStr) return b;
+    return b + (PETTY_IN_TYPES.includes(r.type) ? Number(r.amount) : -Number(r.amount));
+  }, 0);
+}
+function openCountForm(){
+  const area = document.getElementById('pettyFormArea');
+  area.innerHTML = `
+    <div class="preview-card">
+      <div class="sum-title">月末の実査</div>
+      <div class="field"><label>実査日(この日までの記録と突き合わせます)</label><input type="date" id="count-date" value="${new Date().toISOString().slice(0,10)}" oninput="updateCountDiff()"></div>
+      <div class="field"><label>実際の現金額</label><input type="number" id="count-actual" inputmode="numeric" oninput="updateCountDiff()"></div>
+      <div id="countDiffArea" style="margin:10px 0;font-size:13px;"></div>
+      <button class="btn btn-stamp" id="countSubmitBtn" onclick="submitCountAdjust()" disabled>差異を調整として記録</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('pettyFormArea').innerHTML=''">キャンセル</button>
+    </div>`;
+  updateCountDiff();
+}
+function calcCountDiff(){
+  const date = document.getElementById('count-date').value;
+  const raw = document.getElementById('count-actual').value;
+  if(!date || raw==='') return null;
+  const actual = Math.round(Number(raw));
+  if(!isFinite(actual) || actual<0) return null;
+  const book = pettyBalanceAsOf(date);
+  return { date, actual, book, diff: actual - book };
+}
+function updateCountDiff(){
+  const r = calcCountDiff();
+  const box = document.getElementById('countDiffArea');
+  const btn = document.getElementById('countSubmitBtn');
+  if(!r){ box.innerHTML = '<span style="color:var(--ink-soft);">実査日と実際の現金額を入力してください</span>'; btn.disabled = true; return; }
+  const yen = n=>'¥'+Math.abs(n).toLocaleString();
+  let verdict;
+  if(r.diff===0) verdict = '<b style="color:var(--sage);">差異なし(帳簿と一致)</b>';
+  else if(r.diff<0) verdict = `<b style="color:var(--stamp);">現金不足 ${yen(r.diff)}</b>(帳簿より少ない)`;
+  else verdict = `<b style="color:var(--sage);">現金過剰 ${yen(r.diff)}</b>(帳簿より多い)`;
+  box.innerHTML = `帳簿残高(${r.date}時点): ${yen(r.book)}<br>実際の現金: ${yen(r.actual)}<br>${verdict}`;
+  btn.disabled = (r.diff===0);
+}
+async function submitCountAdjust(){
+  if(isSavingPetty) return;
+  const r = calcCountDiff();
+  if(!r || r.diff===0) return;
+  const label = r.diff<0 ? `不足 ¥${Math.abs(r.diff).toLocaleString()}` : `過剰 ¥${r.diff.toLocaleString()}`;
+  if(!confirm(`実査差異(${label})を調整として記録します。よろしいですか？\n帳簿 ¥${r.book.toLocaleString()} → 実際 ¥${r.actual.toLocaleString()}`)) return;
+  isSavingPetty = true;
+  const btn = document.getElementById('countSubmitBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '記録中...'; }
+  try{
+    const { error } = await sb.from('petty_cash').insert([{
+      date: r.date,
+      type: r.diff<0 ? '差異_不足' : '差異_過剰',
+      amount: Math.abs(r.diff),
+      memo: `実査差異(帳簿¥${r.book.toLocaleString()}/実際¥${r.actual.toLocaleString()})`
+    }]);
+    if(error) throw error;
+    toast('差異を調整として記録しました');
+  }catch(e){
+    console.error('count adjust insert failed', e);
+    toast('記録に失敗しました: ' + (e.message||String(e)));
+  }
+  isSavingPetty = false;
+  document.getElementById('pettyFormArea').innerHTML = '';
+  loadPettyCash();
+}
+
 async function loadPettyCash(){
   try{
     const { data, error } = await sb.from('petty_cash').select('*').order('date', {ascending:true}).order('created_at', {ascending:true});
@@ -871,7 +942,7 @@ async function loadPettyCash(){
 function renderPettyCash(){
   let balance = 0;
   const withBalance = pettyCashRows.map(r=>{
-    balance += (r.type==='入金' ? Number(r.amount) : -Number(r.amount));
+    balance += (PETTY_IN_TYPES.includes(r.type) ? Number(r.amount) : -Number(r.amount));
     return {...r, balance};
   });
   document.getElementById('pettyCashBalance').textContent = '¥' + balance.toLocaleString();
@@ -882,8 +953,8 @@ function renderPettyCash(){
     return;
   }
   area.innerHTML = withBalance.slice().reverse().map(r=>{
-    const isIn = r.type==='入金';
-    const label = r.type==='入金' ? '入金' : (r.type==='出金_釣銭' ? '釣銭出金' : '経費出金');
+    const isIn = PETTY_IN_TYPES.includes(r.type);
+    const label = ({'入金':'入金','出金_釣銭':'釣銭出金','出金_経費':'経費出金','差異_過剰':'実査差異(過剰)','差異_不足':'実査差異(不足)'})[r.type] || r.type;
     const desc = r.vendor ? `${escapeHtml(r.vendor)}${r.category ? '・'+r.category : ''}` : escapeHtml(r.memo||'');
     return `
     <div class="receipt" style="clip-path:none;padding:12px 14px;">
