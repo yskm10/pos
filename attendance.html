@@ -205,20 +205,22 @@ function render() {
       <div class="box ${missing ? 'warn' : ''}"><div class="v">${missing}件</div><div class="k">退勤の記録なし</div></div>
     </div>`;
 
-    html += `<button class="add-btn" onclick="openEditor(null)">＋ 勤務を追加(押し忘れ・手入力)</button>`;
+    const self = targetId === ME.id; // 自分の記録は訂正できない(DB側でも禁止)
+    if (self) html += `<div class="note" style="margin-bottom:10px;">自分の勤務記録は、ここでは見るだけです。訂正が必要なときは店主に依頼してください。</div>`;
+    else html += `<button class="add-btn" onclick="openEditor(null)">＋ 勤務を追加(押し忘れ・手入力)</button>`;
 
     html += `<div class="card">`;
     if (rows.length === 0) html += `<div class="note">この月の記録はありません</div>`;
     html += rows.map(r => {
       const open = !r.clock_out;
       const working = isWorking(r);
-      return `<div class="row" onclick="openEditor(${r.id})">
+      return `<div class="row" ${self ? '' : `onclick="openEditor(${r.id})"`}>
         <div class="d">${esc(dateLabel(r.business_date))}</div>
         <div class="t">${esc(bizTime(r.clock_in, r.business_date))} 〜 ${open
           ? (working ? '<span class="tag work">勤務中</span>' : '<span class="tag warn">退勤の記録なし</span>')
           : esc(bizTime(r.clock_out, r.business_date))}
           ${r.source === 'manual' ? '<span class="tag">手入力</span>' : ''}${r.edited ? '<span class="tag">修正済み</span>' : ''}
-          ${open && !working ? `<button class="fixbtn" onclick="event.stopPropagation();openEditor(${r.id},'out')">退勤を入力</button>` : ''}</div>
+          ${open && !working && !self ? `<button class="fixbtn" onclick="event.stopPropagation();openEditor(${r.id},'out')">退勤を入力</button>` : ''}</div>
         <div class="h">${open ? '' : esc(durText(new Date(r.clock_out) - new Date(r.clock_in)))}</div>
       </div>`;
     }).join('');
@@ -278,6 +280,7 @@ function selectStaff(id) { targetId = id; reloadAll(); }
 // ---- 訂正(追加・修正・削除)----
 let editing = null; // 編集中の行(追加なら null)
 async function openEditor(id, focus) {
+  if (targetId === ME.id) return;
   editing = id ? rows.find(r => r.id === id) : null;
   if (id && !editing) return;
   const t = bizToday();
