@@ -64,17 +64,21 @@ summary{cursor:pointer;color:#9ca3af;font-size:12.5px;padding:6px 2px;}
 .btn-clear{background:#22263a;color:#9ca3af;font-size:11px;padding:4px 8px;border-radius:6px;margin-top:4px;}
 .spinner{width:28px;height:28px;border:3px solid #2e3250;border-top-color:#5b8ef5;border-radius:50%;margin:60px auto;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
+.tabs{display:flex;gap:6px;margin-bottom:14px;}
+.tabs a{flex:1;text-align:center;padding:10px 4px;border-radius:10px;background:#1a1d2a;border:1px solid #2e3250;color:#9ca3af;font-size:13px;font-weight:700;text-decoration:none;}
+.tabs a.on{background:#5b8ef5;border-color:#5b8ef5;color:#fff;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="header">
-    <h1>勤怠管理</h1>
+    <h1>シフト・勤怠</h1>
     <div>
       <button class="icon-btn" onclick="reloadAll()" title="更新">🔄</button>
       <a class="icon-btn" href="./home.html" title="ホームへ">🏠</a>
     </div>
   </div>
+  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="">✋ 希望</a><a href="./punch.html" class="">⏱ 打刻</a><a href="./attendance.html" class="on" id="tabAtt">🕒 勤怠管理</a></div>
   <div id="app"><div class="spinner"></div></div>
 </div>
 

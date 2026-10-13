@@ -48,13 +48,16 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
 .tag.warn{background:#4a2020;color:#f08080;}
 .spinner{width:28px;height:28px;border:3px solid #2e3250;border-top-color:#5b8ef5;border-radius:50%;margin:60px auto;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
+.tabs{display:flex;gap:6px;margin-bottom:14px;}
+.tabs a{flex:1;text-align:center;padding:10px 4px;border-radius:10px;background:#1a1d2a;border:1px solid #2e3250;color:#9ca3af;font-size:13px;font-weight:700;text-decoration:none;}
+.tabs a.on{background:#5b8ef5;border-color:#5b8ef5;color:#fff;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="header">
     <div>
-      <h1>出退勤の打刻</h1>
+      <h1>シフト・勤怠</h1>
       <div class="sub" id="who"></div>
     </div>
     <div>
@@ -62,6 +65,7 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
       <button class="icon-btn" id="logoutBtn" style="display:none;" onclick="doLogout()" title="ログアウト">🚪</button>
     </div>
   </div>
+  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="">✋ 希望</a><a href="./punch.html" class="on">⏱ 打刻</a><a href="./attendance.html" class="" id="tabAtt" style="display:none">🕒 勤怠管理</a></div>
   <div id="app"><div class="spinner"></div></div>
 </div>
 
@@ -161,6 +165,8 @@ async function afterLogin(session) {
       .eq('auth_user_id', session.user.id).maybeSingle();
     if (error) throw error;
     me = data;
+    const tb = document.getElementById('tabAtt');
+    if (tb && me && ['owner', 'manager'].includes(me.role)) tb.style.display = '';
   } catch (e) {
     document.getElementById('app').innerHTML = `<div class="card"><div class="err">読み込みに失敗しました: ${esc(e.message || String(e))}</div></div>`;
     return;

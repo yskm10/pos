@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>シフト・勤怠</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0f1117;font-family:'Helvetica Neue',Arial,'Hiragino Sans','Yu Gothic',sans-serif;color:#e8eaf0;min-height:100vh;}
+input,button,select{font-family:inherit;font-size:14px;}
+button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-action:manipulation;}
+.wrap{max-width:560px;margin:0 auto;padding:16px 14px 80px;}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.header h1{font-size:18px;font-weight:800;}
+.icon-btn{background:none;color:#9ca3af;font-size:18px;padding:6px 8px;text-decoration:none;}
+.tabs{display:flex;gap:6px;margin-bottom:14px;}
+.tabs a,.tabs button{flex:1;text-align:center;padding:10px 4px;border-radius:10px;background:#1a1d2a;border:1px solid #2e3250;color:#9ca3af;font-size:13px;font-weight:700;text-decoration:none;}
+.tabs .on{background:#5b8ef5;border-color:#5b8ef5;color:#fff;}
+.card{background:#1a1d2a;border:1px solid #2e3250;border-radius:14px;padding:12px 14px;margin-bottom:12px;}
+.note{color:#9ca3af;font-size:12px;line-height:1.8;}
+.err{color:#e05252;font-size:13px;margin-top:8px;line-height:1.7;}
+.month-nav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:10px;}
+.month-nav button{background:#22263a;color:#e8eaf0;width:36px;height:36px;border-radius:50%;font-size:16px;}
+.month-nav button:disabled{opacity:.3;}
+.month-nav .label{font-size:16px;font-weight:800;min-width:110px;text-align:center;}
+.sum{display:flex;gap:8px;margin-bottom:10px;}
+.sum .box{flex:1;background:#1a1d2a;border:1px solid #2e3250;border-radius:12px;padding:10px 6px;text-align:center;}
+.sum .box .v{font-size:16px;font-weight:800;}
+.sum .box .k{font-size:10.5px;color:#9ca3af;margin-top:2px;}
+.day{display:flex;gap:10px;padding:10px 2px;border-top:1px solid #2e3250;}
+.day:first-child{border-top:none;}
+.day.tap{cursor:pointer;}
+.day.tap:active{background:#22263a;}
+.day .d{width:62px;flex-shrink:0;font-size:13px;color:#9ca3af;padding-top:2px;}
+.day .d.sat{color:#6ea8ff;} .day .d.sun{color:#f08080;}
+.day .b{flex:1;font-size:13.5px;line-height:1.75;font-variant-numeric:tabular-nums;}
+.day .past{opacity:.45;}
+.me{color:#7fd8a6;font-weight:800;}
+.empty{color:#5d6380;}
+.seg{display:flex;gap:6px;}
+.seg button{flex:1;padding:9px 0;background:#22263a;color:#9ca3af;font-size:15px;}
+.seg button.ok.on{background:#1e3d2c;color:#7fd8a6;}
+.seg button.any.on{background:#4a3d1a;color:#f0cf7a;}
+.seg button.ng.on{background:#5a2323;color:#ffb3b3;}
+.memo{width:100%;margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;font-size:13px;}
+.tag{display:inline-block;font-size:10.5px;padding:2px 6px;border-radius:6px;background:#2e3250;color:#9ca3af;margin-left:3px;}
+.tag.ok{background:#1e3d2c;color:#7fd8a6;} .tag.any{background:#4a3d1a;color:#f0cf7a;} .tag.ng{background:#5a2323;color:#ffb3b3;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:flex;align-items:flex-end;justify-content:center;}
+.sheet{background:#1a1d2a;border:1px solid #2e3250;border-radius:18px 18px 0 0;width:100%;max-width:560px;padding:18px 16px 24px;max-height:92vh;overflow:auto;}
+.sheet h2{font-size:16px;margin-bottom:12px;}
+.prow{padding:10px 0;border-top:1px solid #2e3250;}
+.prow:first-of-type{border-top:none;}
+.prow .nm{font-size:14px;font-weight:700;margin-bottom:6px;}
+.prow .tm{display:flex;gap:8px;align-items:center;}
+.prow input[type=time]{flex:1;padding:10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;}
+.prow .clr{background:#22263a;color:#9ca3af;padding:10px 12px;font-size:12px;}
+.btns{display:flex;gap:8px;margin-top:12px;}
+.btns button{flex:1;padding:13px;font-size:14.5px;}
+.btn-save{background:#5b8ef5;color:#fff;}
+.btn-cancel{background:#22263a;color:#9ca3af;}
+.spinner{width:28px;height:28px;border:3px solid #2e3250;border-top-color:#5b8ef5;border-radius:50%;margin:60px auto;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>シフト・勤怠</h1>
+    <div>
+      <button class="icon-btn" onclick="reloadAll()" title="更新">🔄</button>
+      <a class="icon-btn" href="./home.html" title="ホームへ">🏠</a>
+    </div>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div id="app"><div class="spinner"></div></div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const DEFAULT_START = '17:00', DEFAULT_END = '23:00'; // 「出勤にする」を押したときの初期値
+
+let ME = null, staffAll = [], month = null, view = 'shift';
+let shifts = [], reqs = [], loadSeq = 0, editingDate = null;
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad2 = n => String(n).padStart(2, '0');
+const isAdmin = () => ME && ['owner', 'manager'].includes(ME.role);
+const workers = () => staffAll.filter(s => s.attendance_enabled);
+const isWorker = () => ME && ME.attendance_enabled;
+
+// ---- 日付・時刻(日本時間)----
+const JST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
+function todayStr() { return JST.format(new Date()); }
+function monthRange() {
+  const last = new Date(Date.UTC(month.y, month.m, 0)).getUTCDate();
+  return { first: `${month.y}-${pad2(month.m)}-01`, last: `${month.y}-${pad2(month.m)}-${pad2(last)}`, n: last };
+}
+function dow(d) { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd)).getUTCDay(); }
+function dateLabel(d) { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}(${'日月火水木金土'[dow(d)]})`; }
+function fmtMin(n) { return `${Math.floor(n / 60)}:${pad2(n % 60)}`; }               // 25:00 のように表示
+function toMin(hhmm) { const [h, m] = hhmm.split(':').map(Number); return (h < 7 ? h + 24 : h) * 60 + m; } // 0:00〜6:59 は翌日扱い
+function toInput(min) { const v = min >= 1440 ? min - 1440 : min; return `${pad2(Math.floor(v / 60))}:${pad2(v % 60)}`; }
+function hoursText(min) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h}時間${m}分` : `${h}時間`; }
+
+// ---- 起動 ----
+function parseHash() { const h = location.hash.replace('#', ''); view = ['shift', 'req'].includes(h) ? h : 'shift'; }
+async function init() {
+  parseHash();
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return showMsg('ログインが必要です。<br>ホーム画面でログインしてから開いてください。');
+  try {
+    const { data, error } = await sb.from('staff').select('id,name,role,active,attendance_enabled').eq('auth_user_id', session.user.id).maybeSingle();
+    if (error) throw error;
+    ME = data;
+  } catch (e) { return showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
+  if (!ME || !ME.active || !['owner', 'manager', 'staff'].includes(ME.role)) return showMsg('この画面を使える権限がありません。');
+  const t = todayStr();
+  month = { y: +t.slice(0, 4), m: +t.slice(5, 7) };
+  await reloadAll();
+}
+window.addEventListener('hashchange', () => { parseHash(); reloadAll(); });
+function showMsg(html) { document.getElementById('app').innerHTML = `<div class="card"><div class="note">${html}</div></div>`; }
+
+function renderTabs() {
+  const t = (id, label) => `<a href="#${id}" class="${view === id ? 'on' : ''}">${label}</a>`;
+  document.getElementById('tabs').innerHTML =
+    t('shift', '📅 シフト') + t('req', '✋ 希望') +
+    `<a href="./punch.html">⏱ 打刻</a>` + (isAdmin() ? `<a href="./attendance.html">🕒 勤怠管理</a>` : '');
+}
+
+async function reloadAll() {
+  if (!ME) return;
+  const seq = ++loadSeq;
+  try {
+    const { data: st, error: e0 } = await sb.from('staff').select('id,name,role,active,attendance_enabled').eq('active', true).order('id');
+    if (e0) throw e0;
+    staffAll = st || [];
+    const r = monthRange();
+    const [a, b] = await Promise.all([
+      sb.from('shifts').select('*').gte('date', r.first).lte('date', r.last),
+      sb.from('shift_requests').select('*').gte('date', r.first).lte('date', r.last)
+    ]);
+    if (a.error) throw a.error; if (b.error) throw b.error;
+    if (seq !== loadSeq) return;
+    const act = new Set(staffAll.map(x => x.id)); // 退職・無効にした人の分は表示しない
+    shifts = (a.data || []).filter(x => act.has(x.staff_id)); reqs = (b.data || []).filter(x => act.has(x.staff_id));
+    render();
+  } catch (e) { if (seq === loadSeq) showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
+}
+
+function monthNav() {
+  const t = todayStr(), cur = +t.slice(0, 4) * 12 + (+t.slice(5, 7)), mine = month.y * 12 + month.m;
+  return `<div class="month-nav">
+    <button onclick="shiftMonth(-1)" ${mine <= cur - 1 ? 'disabled' : ''}>‹</button>
+    <div class="label">${month.y}年${month.m}月</div>
+    <button onclick="shiftMonth(1)" ${mine >= cur + 2 ? 'disabled' : ''}>›</button>
+  </div>`;
+}
+function shiftMonth(d) {
+  let { y, m } = month; m += d;
+  if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+  month = { y, m }; reloadAll();
+}
+function days() { const r = monthRange(); return Array.from({ length: r.n }, (_, i) => `${month.y}-${pad2(month.m)}-${pad2(i + 1)}`); }
+function dcls(d) { const w = dow(d); return w === 6 ? 'sat' : w === 0 ? 'sun' : ''; }
+function nameOf(id) { const s = staffAll.find(x => x.id === id); return s ? s.name.replace(/[ 　].*$/, '') : '?'; } // 苗字だけ表示
+
+function render() {
+  renderTabs();
+  document.getElementById('app').innerHTML = view === 'req' ? renderReq() : renderShift();
+}
+
+// ================= シフト(確定分の確認・店主/店長は編集)=================
+function renderShift() {
+  const today = todayStr();
+  const mine = shifts.filter(s => s.staff_id === ME.id);
+  const totalMin = mine.reduce((n, s) => n + (s.end_min - s.start_min), 0);
+  let html = monthNav();
+  if (isWorker()) html += `<div class="sum">
+    <div class="box"><div class="v">${mine.length}日</div><div class="k">あなたの出勤予定</div></div>
+    <div class="box"><div class="v">${esc(hoursText(totalMin))}</div><div class="k">予定の合計</div></div></div>`;
+  if (isAdmin()) html += `<div class="note" style="margin:0 2px 8px;">日付をタップすると、その日のシフトを入力できます。スタッフの希望も表示されます。</div>`;
+  html += `<div class="card">` + days().map(d => {
+    const list = shifts.filter(s => s.date === d).sort((a, b) => a.start_min - b.start_min || a.staff_id - b.staff_id);
+    const body = list.length ? list.map(s => `<div class="${s.staff_id === ME.id ? 'me' : ''}">${esc(nameOf(s.staff_id))} ${fmtMin(s.start_min)}〜${fmtMin(s.end_min)}${s.note ? ` <span class="tag">${esc(s.note)}</span>` : ''}</div>`).join('') : '<span class="empty">—</span>';
+    return `<div class="day ${isAdmin() ? 'tap' : ''}" ${isAdmin() ? `onclick="openDay('${d}')"` : ''}>
+      <div class="d ${dcls(d)}">${dateLabel(d)}</div><div class="b ${d < today ? 'past' : ''}">${body}</div></div>`;
+  }).join('') + `</div>`;
+  return html;
+}
+
+function openDay(d) {
+  editingDate = d;
+  const ws = workers();
+  const ov = document.createElement('div');
+  ov.className = 'overlay'; ov.id = 'editor';
+  ov.onclick = e => { if (e.target === ov) closeEditor(); };
+  const rows = ws.map(s => {
+    const sh = shifts.find(x => x.date === d && x.staff_id === s.id);
+    const rq = reqs.find(x => x.date === d && x.staff_id === s.id);
+    const lab = { ok: '○ 出られる', any: '△ どちらでも', ng: '× 出られない' };
+    return `<div class="prow" data-sid="${s.id}">
+      <div class="nm">${esc(s.name)} ${rq ? `<span class="tag ${rq.status}">${lab[rq.status]}</span>${rq.note ? `<span class="tag">${esc(rq.note)}</span>` : ''}` : '<span class="tag">希望なし</span>'}</div>
+      <div class="tm">
+        <input type="time" class="st" value="${sh ? toInput(sh.start_min) : ''}">
+        <span>〜</span>
+        <input type="time" class="en" value="${sh ? toInput(sh.end_min) : ''}">
+        <button class="clr" onclick="fillRow(${s.id},true)">出勤</button>
+        <button class="clr" onclick="fillRow(${s.id},false)">休み</button>
+      </div></div>`;
+  }).join('');
+  ov.innerHTML = `<div class="sheet"><h2>${esc(dateLabel(d))} のシフト</h2>
+    ${ws.length ? rows : '<div class="note">打刻の対象になっている人がいません。勤怠管理の「設定」で対象を選んでください。</div>'}
+    <div class="note" style="margin-top:8px;">時刻の空欄=出勤なし。0:00〜6:59は翌日の深夜として扱います(例:1:00 → 25:00)。</div>
+    <div id="edErr"></div>
+    <div class="btns"><button class="btn-cancel" onclick="closeEditor()">キャンセル</button>${ws.length ? '<button class="btn-save" id="edSave" onclick="saveDay()">保存</button>' : ''}</div></div>`;
+  document.body.appendChild(ov);
+}
+function closeEditor() { const e = document.getElementById('editor'); if (e) e.remove(); editingDate = null; }
+function fillRow(sid, on) {
+  const r = document.querySelector(`#editor .prow[data-sid="${sid}"]`);
+  r.querySelector('.st').value = on ? DEFAULT_START : ''; r.querySelector('.en').value = on ? DEFAULT_END : '';
+}
+async function saveDay() {
+  const d = editingDate, err = document.getElementById('edErr');
+  err.innerHTML = '';
+  const ups = [], dels = [];
+  for (const r of document.querySelectorAll('#editor .prow')) {
+    const sid = +r.dataset.sid, st = r.querySelector('.st').value, en = r.querySelector('.en').value;
+    if (!st && !en) { dels.push(sid); continue; }
+    if (!st || !en) { err.innerHTML = `<div class="err">${esc(nameOf(sid))}さんの開始・終了のどちらかが空です</div>`; return; }
+    const a = toMin(st), b = toMin(en);
+    if (b <= a) { err.innerHTML = `<div class="err">${esc(nameOf(sid))}さんの終了が開始より前です</div>`; return; }
+    ups.push({ staff_id: sid, date: d, start_min: a, end_min: b, updated_at: new Date().toISOString() });
+  }
+  const btn = document.getElementById('edSave'); btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    if (ups.length) { const { error } = await sb.from('shifts').upsert(ups, { onConflict: 'staff_id,date' }); if (error) throw error; }
+    const existing = dels.filter(sid => shifts.some(x => x.date === d && x.staff_id === sid));
+    if (existing.length) { const { error } = await sb.from('shifts').delete().eq('date', d).in('staff_id', existing); if (error) throw error; }
+    closeEditor(); await reloadAll();
+  } catch (e) { err.innerHTML = `<div class="err">保存に失敗しました: ${esc(e.message || String(e))}</div>`; btn.disabled = false; btn.textContent = '保存'; }
+}
+
+// ================= 希望(自分の出られる日を出す)=================
+function renderReq() {
+  let html = monthNav();
+  if (!isWorker()) return html + `<div class="card"><div class="note">シフト希望を出すのは、勤怠の「打刻の対象」になっている人です。${isAdmin() ? '' : '対象になっていない場合は店主に伝えてください。'}</div></div>`;
+  const today = todayStr();
+  const done = reqs.filter(r => r.staff_id === ME.id).length;
+  html += `<div class="note" style="margin:0 2px 8px;">日ごとに ○出られる / △どちらでも / ×出られない を選んでください。もう一度押すと取り消せます。時間の希望は、メモ欄に書いてください(例:20時まで)。選んだ時点で自動保存されます。入力済み:${done}日</div><div class="card">`;
+  html += days().map(d => {
+    const rq = reqs.find(r => r.staff_id === ME.id && r.date === d);
+    const past = d < today, st = rq ? rq.status : '';
+    const btn = (k, l) => `<button class="${k} ${st === k ? 'on' : ''}" ${past ? 'disabled' : ''} onclick="setReq('${d}','${k}')">${l}</button>`;
+    const mySh = shifts.find(s => s.staff_id === ME.id && s.date === d);
+    return `<div class="day"><div class="d ${dcls(d)}">${dateLabel(d)}</div><div class="b ${past ? 'past' : ''}">
+      <div class="seg">${btn('ok', '○')}${btn('any', '△')}${btn('ng', '×')}</div>
+      ${rq && !past ? `<input class="memo" maxlength="40" placeholder="メモ(任意)" value="${esc(rq.note || '')}" onchange="setNote('${d}',this.value)">` : (rq && rq.note ? `<div class="note">${esc(rq.note)}</div>` : '')}
+      ${mySh ? `<div class="me" style="margin-top:4px;">確定シフト ${fmtMin(mySh.start_min)}〜${fmtMin(mySh.end_min)}</div>` : ''}
+    </div></div>`;
+  }).join('') + `</div>`;
+  return html;
+}
+async function setReq(d, k) {
+  const cur = reqs.find(r => r.staff_id === ME.id && r.date === d);
+  try {
+    if (cur && cur.status === k) {
+      const { error } = await sb.from('shift_requests').delete().eq('id', cur.id); if (error) throw error;
+      reqs = reqs.filter(r => r.id !== cur.id);
+    } else {
+      const { data, error } = await sb.from('shift_requests').upsert({ staff_id: ME.id, date: d, status: k, note: cur ? cur.note : null, updated_at: new Date().toISOString() }, { onConflict: 'staff_id,date' }).select().single();
+      if (error) throw error;
+      reqs = reqs.filter(r => !(r.staff_id === ME.id && r.date === d)).concat(data);
+    }
+    render();
+  } catch (e) { alert('保存に失敗しました: ' + (e.message || e)); await reloadAll(); }
+}
+async function setNote(d, v) {
+  const cur = reqs.find(r => r.staff_id === ME.id && r.date === d); if (!cur) return;
+  const { error } = await sb.from('shift_requests').update({ note: v.trim() || null, updated_at: new Date().toISOString() }).eq('id', cur.id);
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  cur.note = v.trim() || null;
+}
+
+init();
+</script>
+</body>
+</html>
