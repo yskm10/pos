@@ -212,11 +212,18 @@
   .audit-item.has-ng { border-color: #f5b5b5; }
   .audit-row { display: flex; align-items: center; gap: 8px; }
   .audit-name { flex: 1; font-size: 14px; line-height: 1.4; cursor: pointer; }
-  .audit-count {
+  .audit-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .audit-count, .audit-unchk {
     font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
     background: var(--pill-bg); color: var(--text-sub); white-space: nowrap;
   }
   .audit-count.ng { background: #dc2626; color: #fff; }
+  .audit-unchk.has { background: #f59e0b; color: #fff; }
+  .audit-dates-label { width: 100%; font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+  .unchk-day {
+    font-size: 12px; padding: 5px 10px; border-radius: 8px;
+    background: var(--pill-bg); color: var(--text-sub); font-weight: 700;
+  }
   .audit-add {
     border: 1px solid #dc2626; background: transparent; color: #dc2626;
     font-size: 12.5px; font-weight: 700; padding: 8px 10px; border-radius: 9px;
@@ -328,12 +335,12 @@
       <div class="month-label" id="auditMonthLabel">-</div>
       <button class="arrow" id="nextAuditMonth">›</button>
     </div>
-    <div class="owner-note">チェックは入っているのに実際はやっていなかった項目を現場で確認できたら、項目の横の「できてない」を押してください。記録日に1回カウントされ、その月の回数が項目の横に出ます。項目名をタップすると記録した日が開き、日付をタップすると取り消せます。</div>
+    <div class="owner-note">チェックは入っているのに実際はやっていなかった項目を現場で確認できたら、項目の横の「できてない」を押してください。記録日に1回カウントされ、その月の回数が項目の横に出ます。あわせて、チェックが入っていなかった日数(未チェック)も出ます(本日と、チェックの記録が1件もない日は含みません)。項目名をタップすると日付が開き、赤い日付をタップすると「できてない」の記録を取り消せます。</div>
     <div class="record-date"><label>記録日 <input type="date" id="auditRecordDate"></label></div>
     <div class="audit-summary" id="auditSummary"></div>
     <label class="owner-filter">
       <input type="checkbox" id="auditOnlyNg">
-      <span>できてない記録のある項目だけ表示</span>
+      <span>できてない・未チェックのある項目だけ表示</span>
     </label>
     <div id="auditList"></div>
     <div class="status-line" id="auditStatusLine"></div>
@@ -706,6 +713,7 @@ let isOwner = false;
 let ownerClient = null;
 let auditMonth = { y: currentMonth.y, m: currentMonth.m };
 let auditNg = {};               // "kind|項目名" -> ["2026-10-03", ...](表示中の月の「できてない」記録日)
+let auditUnchk = null;          // "kind|項目名" -> [未チェックだった日](チェック記録の取得に失敗したら null)
 let auditRecordDate = currentDate;
 const auditPending = new Set(); // 同一項目・同一日への二重タップ防止
 const auditExpanded = new Set(); // 記録日を開いている項目
@@ -789,47 +797,93 @@ async function loadAuditMonth() {
 
   auditStatus("読み込み中...", true);
   try {
-    const rows = await fetchNgRows(first, last);
+    const [rows, checkRows] = await Promise.all([
+      fetchNgRows(first, last),
+      sbGetRange(first, last).catch(() => null), // 取得できなくても「できてない」の記録は使えるようにする
+    ]);
     if (mk !== auditMonthKey()) return; // 読み込み中に別の月へ移動していたら破棄
+    auditUnchk = computeUnchecked(checkRows, todayS);
     auditNg = {};
     rows.forEach(r => {
       const k = auditKey(r.kind, r.item_name);
       (auditNg[k] || (auditNg[k] = [])).push(r.date);
     });
-    auditStatus("");
+    auditStatus(auditUnchk ? "" : "未チェックの集計用データを取得できませんでした(「できてない」の記録は使えます)", true);
     renderAuditMonth();
   } catch (e) {
     auditStatus("読み込みに失敗しました: " + (e && e.message ? e.message : String(e)), true);
   }
 }
 
-function auditRowHtml(kind, name, dates, withAdd) {
+// 未チェック = その日のチェックリスト記録があるのに、その項目にチェックが入っていない日。
+// 本日(営業日)以降はまだ入力途中なので対象外。チェックの記録が1件もない日(休業日など)も対象外。
+function computeUnchecked(rows, todayS) {
+  if (!rows) return null;
+  const res = {};
+  rows.forEach(r => {
+    if (r.date >= todayS) return;
+    [["open", OPEN_ITEMS], ["close", CLOSE_ITEMS]].forEach(([kind, items]) => {
+      const arr = r[kind] || [];
+      items.forEach((name, i) => {
+        if (arr[i]) return;
+        const k = auditKey(kind, name);
+        (res[k] || (res[k] = [])).push(r.date);
+      });
+    });
+  });
+  return res;
+}
+
+function shortDate(d) { return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`; }
+
+function auditRowHtml(kind, name, dates, withAdd, unchk) {
   const key = auditKey(kind, name);
   const cls = "audit-item" + (dates.length ? " has-ng" : "") + (auditExpanded.has(key) ? " expanded" : "");
   const chips = dates.map(d =>
-    `<button class="miss-chip" data-date="${d}">${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} ✕</button>`).join("");
+    `<button class="miss-chip" data-date="${d}">${shortDate(d)} ✕</button>`).join("");
+  // unchk: 配列=未チェックの日 / null=チェック記録を取得できず不明 / undefined=項目名変更前の記録なので表示しない
+  let unchkPill = "";
+  let unchkDates = "";
+  if (unchk === null) {
+    unchkPill = `<span class="audit-unchk">未チェック -</span>`;
+  } else if (unchk) {
+    unchkPill = `<span class="audit-unchk ${unchk.length ? "has" : ""}">未チェック ${unchk.length}回</span>`;
+    if (unchk.length) {
+      unchkDates = `<div class="audit-dates-label">未チェックだった日</div>` +
+        unchk.map(d => `<span class="unchk-day">${shortDate(d)}</span>`).join("");
+    }
+  }
+  const ngLabel = dates.length ? `<div class="audit-dates-label">「できてない」を記録した日(タップで取り消し)</div>${chips}` : "";
   return `
     <div class="${cls}" data-kind="${kind}" data-name="${esc(name)}">
       <div class="audit-row">
         <div class="audit-name">${esc(name)}</div>
-        <div class="audit-count ${dates.length ? "ng" : ""}">${dates.length}回</div>
         ${withAdd ? `<button class="audit-add">できてない</button>` : ""}
       </div>
-      <div class="audit-dates">${chips}</div>
+      <div class="audit-stats">
+        ${unchkPill}
+        <span class="audit-count ${dates.length ? "ng" : ""}">できてない ${dates.length}回</span>
+      </div>
+      <div class="audit-dates">${ngLabel}${unchkDates}</div>
     </div>`;
 }
 
 function auditSectionHtml(title, kind, items, onlyNg) {
   let rows = "";
   let sectionTotal = 0;
+  let sectionUnchk = 0;
   items.forEach(name => {
-    const dates = auditNg[auditKey(kind, name)] || [];
+    const key = auditKey(kind, name);
+    const dates = auditNg[key] || [];
+    const un = auditUnchk ? (auditUnchk[key] || []) : null;
     sectionTotal += dates.length;
-    if (onlyNg && dates.length === 0) return;
-    rows += auditRowHtml(kind, name, dates, true);
+    if (un) sectionUnchk += un.length;
+    if (onlyNg && dates.length === 0 && !(un && un.length)) return;
+    rows += auditRowHtml(kind, name, dates, true, un);
   });
-  return `<div class="owner-sec-title ${kind}"><span class="badge ${kind}"></span>${title}(今月 ${sectionTotal}回)</div>` +
-    (rows || `<div class="owner-note">できてない記録のある項目はありません</div>`);
+  const unchkTxt = auditUnchk ? ` / 未チェック ${sectionUnchk}回` : "";
+  return `<div class="owner-sec-title ${kind}"><span class="badge ${kind}"></span>${title}(今月 できてない ${sectionTotal}回${unchkTxt})</div>` +
+    (rows || `<div class="owner-note">できてない・未チェックの記録がある項目はありません</div>`);
 }
 
 function renderAuditMonth() {
@@ -843,8 +897,14 @@ function renderAuditMonth() {
   const total = Object.values(auditNg).reduce((n, a) => n + a.length, 0);
   const itemCount = Object.values(auditNg).filter(a => a.length > 0).length;
 
-  document.getElementById("auditSummary").textContent =
-    `今月の「できてない」記録 ${total}回(${itemCount}項目)`;
+  let summary = `今月の「できてない」記録 ${total}回(${itemCount}項目)`;
+  if (auditUnchk) {
+    const unTotal = Object.values(auditUnchk).reduce((n, a) => n + a.length, 0);
+    summary += `\n未チェック 合計 ${unTotal}回`;
+  }
+  const sumEl = document.getElementById("auditSummary");
+  sumEl.textContent = summary;
+  sumEl.style.whiteSpace = "pre-line";
 
   let html = auditSectionHtml("OPEN 開店チェック", "open", OPEN_ITEMS, onlyNg) +
              auditSectionHtml("CLOSE 閉店チェック", "close", CLOSE_ITEMS, onlyNg);
