@@ -239,6 +239,16 @@
       <button class="btn btn-primary btn-sm" onclick="saveShiftDeadline()">保存</button>
     </div>
     <div id="shiftDeadlineMsg" style="font-size:11px;color:var(--ink-soft);margin:6px 0 22px;"></div>
+    <div class="section-title" style="font-size:13px;">期間ごとの締切(任意)</div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">「半月ごとに集める」など、特定の期間だけ別の締切にしたいときに追加します。その期間に含まれる日は、上の設定より、ここの締切が優先されます。例:11/1〜11/15分は10/25まで、11/16〜11/30分は11/8まで。</div>
+    <div id="shiftPeriodArea"></div>
+    <div class="master-add" style="flex-wrap:wrap;">
+      <input type="date" id="spStart" title="対象期間の開始"><span style="font-size:13px;">〜</span>
+      <input type="date" id="spEnd" title="対象期間の終了"><span style="font-size:13px;">分 → 締切</span>
+      <input type="date" id="spDeadline" title="締切日">
+      <button class="btn btn-primary btn-sm" onclick="addShiftPeriod()">追加</button>
+    </div>
+    <div style="height:22px;"></div>
 
     <div class="section-title">税率設定(仕入の税抜換算に使用)</div>
     <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">「適用開始日」以降の月にその税率が使われます。税率が変わったら新しい行を追加してください(古い行は消さなくて大丈夫です)</div>
@@ -701,6 +711,31 @@ async function deletePayroll(id){
 }
 
 // ---- 設定(マスタ管理) ----
+async function loadShiftPeriods(){
+  const area = document.getElementById('shiftPeriodArea'); if(!area) return;
+  const { data, error } = await sb.from('shift_deadline_periods').select('*').order('period_start', {ascending:true});
+  if(error){ area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(error.message)}</div>`; return; }
+  const fmt = d => { const [,m,dd] = d.split('-').map(Number); return `${m}/${dd}`; };
+  area.innerHTML = (data||[]).length ? data.map(p=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px;">
+      <div style="flex:1;">${fmt(p.period_start)}〜${fmt(p.period_end)}分 → 締切 <b>${fmt(p.deadline)}</b></div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteShiftPeriod(${p.id})">削除</button></div>`).join('')
+    : '<div style="font-size:12px;color:var(--ink-soft);padding:4px 0;">登録なし(上の設定だけが使われます)</div>';
+}
+async function addShiftPeriod(){
+  const a = document.getElementById('spStart').value, b = document.getElementById('spEnd').value, c = document.getElementById('spDeadline').value;
+  if(!a||!b||!c){ toast('開始・終了・締切の3つを入れてください'); return; }
+  if(a>b){ toast('終了が開始より前になっています'); return; }
+  const { error } = await sb.from('shift_deadline_periods').insert({ period_start:a, period_end:b, deadline:c });
+  if(error){ toast('追加に失敗しました: '+error.message); return; }
+  ['spStart','spEnd','spDeadline'].forEach(id=>document.getElementById(id).value='');
+  toast('追加しました'); loadShiftPeriods();
+}
+async function deleteShiftPeriod(id){
+  if(!confirm('この期間の締切を削除します。よろしいですか?')) return;
+  const { error } = await sb.from('shift_deadline_periods').delete().eq('id', id);
+  if(error){ toast('削除に失敗しました: '+error.message); return; }
+  toast('削除しました'); loadShiftPeriods();
+}
 async function loadShiftDeadline(){
   const el = document.getElementById('shiftDeadlineDay'); if(!el) return;
   const { data, error } = await sb.from('shift_config').select('request_deadline_day').eq('id',1).maybeSingle();
@@ -728,7 +763,7 @@ async function loadMasters(){
     if(t.error) throw t.error;
     vendors = v.data||[]; staffList = s.data||[]; taxRates = t.data||[];
     renderVendors(); renderStaff(); renderTaxRates();
-    loadShiftDeadline();
+    loadShiftDeadline(); loadShiftPeriods();
   }catch(e){
     document.getElementById('vendorArea').innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
   }
