@@ -230,6 +230,16 @@
         <button class="btn btn-stamp" id="newAcctBtn" onclick="createStaffAccount()">アカウントを作成</button>
       </div>
     </div>
+    <div class="section-title">シフト希望の締切</div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">スタッフがシフト希望を出せるのは、対象月の「前月◯日」までです(例:20 → 11月分は10月20日まで)。締切を過ぎると、スタッフは希望の追加・変更ができなくなります(店主・店長がシフトを入力するのは締切後もできます)。空欄にすると締切なしです。</div>
+    <div class="master-add">
+      <span style="font-size:13px;">前月</span>
+      <input type="number" id="shiftDeadlineDay" min="1" max="28" placeholder="空欄=締切なし" style="max-width:130px;">
+      <span style="font-size:13px;">日まで</span>
+      <button class="btn btn-primary btn-sm" onclick="saveShiftDeadline()">保存</button>
+    </div>
+    <div id="shiftDeadlineMsg" style="font-size:11px;color:var(--ink-soft);margin:6px 0 22px;"></div>
+
     <div class="section-title">税率設定(仕入の税抜換算に使用)</div>
     <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">「適用開始日」以降の月にその税率が使われます。税率が変わったら新しい行を追加してください(古い行は消さなくて大丈夫です)</div>
     <div id="taxRateArea"><div class="loading">読み込み中...</div></div>
@@ -691,6 +701,21 @@ async function deletePayroll(id){
 }
 
 // ---- 設定(マスタ管理) ----
+async function loadShiftDeadline(){
+  const el = document.getElementById('shiftDeadlineDay'); if(!el) return;
+  const { data, error } = await sb.from('shift_config').select('request_deadline_day').eq('id',1).maybeSingle();
+  if(error){ document.getElementById('shiftDeadlineMsg').textContent = '読み込みに失敗しました: '+error.message; return; }
+  el.value = data && data.request_deadline_day ? data.request_deadline_day : '';
+  document.getElementById('shiftDeadlineMsg').textContent = el.value ? `現在の設定: 対象月の前月${el.value}日まで` : '現在の設定: 締切なし';
+}
+async function saveShiftDeadline(){
+  const raw = document.getElementById('shiftDeadlineDay').value.trim();
+  const day = raw==='' ? null : Number(raw);
+  if(day!==null && (!Number.isInteger(day) || day<1 || day>28)){ toast('1〜28の数字を入れてください(締切なしは空欄)'); return; }
+  const { error } = await sb.from('shift_config').upsert({ id:1, request_deadline_day: day, updated_at: new Date().toISOString() }, { onConflict:'id' });
+  if(error){ toast('保存に失敗しました: '+error.message); return; }
+  toast('保存しました'); loadShiftDeadline();
+}
 async function loadMasters(){
   try{
     const [v, s, t] = await Promise.all([
@@ -703,6 +728,7 @@ async function loadMasters(){
     if(t.error) throw t.error;
     vendors = v.data||[]; staffList = s.data||[]; taxRates = t.data||[];
     renderVendors(); renderStaff(); renderTaxRates();
+    loadShiftDeadline();
   }catch(e){
     document.getElementById('vendorArea').innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
   }

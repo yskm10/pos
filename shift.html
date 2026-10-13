@@ -33,6 +33,7 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
 .day.tap{cursor:pointer;}
 .day.tap:active{background:#22263a;}
 .day .d{width:62px;flex-shrink:0;font-size:13px;color:#9ca3af;padding-top:2px;}
+.day .hol{display:block;font-size:9.5px;line-height:1.3;}
 .day .d.sat{color:#6ea8ff;} .day .d.sun{color:#f08080;}
 .day .b{flex:1;font-size:13.5px;line-height:1.75;font-variant-numeric:tabular-nums;}
 .day .past{opacity:.45;}
@@ -83,7 +84,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const DEFAULT_START = '17:00', DEFAULT_END = '23:00'; // 「出勤にする」を押したときの初期値
 
 let ME = null, staffAll = [], month = null, view = 'shift';
-let shifts = [], reqs = [], loadSeq = 0, editingDate = null;
+let shifts = [], reqs = [], loadSeq = 0, editingDate = null, deadlineDay = null;
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad2 = n => String(n).padStart(2, '0');
@@ -104,6 +105,27 @@ function fmtMin(n) { return `${Math.floor(n / 60)}:${pad2(n % 60)}`; }          
 function toMin(hhmm) { const [h, m] = hhmm.split(':').map(Number); return (h < 7 ? h + 24 : h) * 60 + m; } // 0:00〜6:59 は翌日扱い
 function toInput(min) { const v = min >= 1440 ? min - 1440 : min; return `${pad2(Math.floor(v / 60))}:${pad2(v % 60)}`; }
 function hoursText(min) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h}時間${m}分` : `${h}時間`; }
+
+// ---- 日本の祝日(pos.htmlと同じ判定)----
+function ymd(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function jpEquinoxDay(year, type){ const base = type==='spring' ? 20.8431 : 23.2488; return Math.floor(base + 0.242194*(year-1980) - Math.floor((year-1980)/4)); }
+function nthMonday(year, month, n){ let c=0; for(let day=1; day<=31; day++){ const dt=new Date(year,month-1,day); if(dt.getMonth()!==month-1) break; if(dt.getDay()===1){ c++; if(c===n) return day; } } return null; }
+const _holCache = {};
+function buildJpHolidays(year){
+  const H = {};
+  const add=(m,d,name)=>{ H[`${year}-${pad2(m)}-${pad2(d)}`]=name; };
+  add(1,1,'元日'); const a1=nthMonday(year,1,2); if(a1) add(1,a1,'成人の日');
+  add(2,11,'建国記念の日'); add(2,23,'天皇誕生日'); add(3,jpEquinoxDay(year,'spring'),'春分の日');
+  add(4,29,'昭和の日'); add(5,3,'憲法記念日'); add(5,4,'みどりの日'); add(5,5,'こどもの日');
+  const a7=nthMonday(year,7,3); if(a7) add(7,a7,'海の日'); add(8,11,'山の日');
+  const a9=nthMonday(year,9,3); if(a9) add(9,a9,'敬老の日'); add(9,jpEquinoxDay(year,'autumn'),'秋分の日');
+  const a10=nthMonday(year,10,2); if(a10) add(10,a10,'スポーツの日'); add(11,3,'文化の日'); add(11,23,'勤労感謝の日');
+  Object.keys(H).sort().forEach(k=>{ const dt=new Date(k+'T00:00:00'); if(dt.getDay()===0){ const n=new Date(dt); do{ n.setDate(n.getDate()+1); }while(H[ymd(n)]); H[ymd(n)]='振替休日'; } });
+  Object.keys(H).sort().forEach(k=>{ const dt=new Date(k+'T00:00:00'); const n=new Date(dt); n.setDate(n.getDate()+1); const n2=new Date(n); n2.setDate(n2.getDate()+1);
+    if(!H[ymd(n)] && n.getDay()!==0 && n.getDay()!==6 && H[ymd(n2)]) H[ymd(n)]='国民の休日'; });
+  return H;
+}
+function holidayName(d){ const y=+d.slice(0,4); if(!_holCache[y]) _holCache[y]=buildJpHolidays(y); return _holCache[y][d]||null; }
 
 // ---- 起動 ----
 function parseHash() { const h = location.hash.replace('#', ''); view = ['shift', 'req'].includes(h) ? h : 'shift'; }
@@ -139,10 +161,12 @@ async function reloadAll() {
     if (e0) throw e0;
     staffAll = st || [];
     const r = monthRange();
-    const [a, b] = await Promise.all([
+    const [a, b, c] = await Promise.all([
       sb.from('shifts').select('*').gte('date', r.first).lte('date', r.last),
-      sb.from('shift_requests').select('*').gte('date', r.first).lte('date', r.last)
+      sb.from('shift_requests').select('*').gte('date', r.first).lte('date', r.last),
+      sb.from('shift_config').select('request_deadline_day').eq('id', 1).maybeSingle()
     ]);
+    deadlineDay = c.data ? c.data.request_deadline_day : null;
     if (a.error) throw a.error; if (b.error) throw b.error;
     if (seq !== loadSeq) return;
     const act = new Set(staffAll.map(x => x.id)); // 退職・無効にした人の分は表示しない
@@ -165,7 +189,8 @@ function shiftMonth(d) {
   month = { y, m }; reloadAll();
 }
 function days() { const r = monthRange(); return Array.from({ length: r.n }, (_, i) => `${month.y}-${pad2(month.m)}-${pad2(i + 1)}`); }
-function dcls(d) { const w = dow(d); return w === 6 ? 'sat' : w === 0 ? 'sun' : ''; }
+function dcls(d) { const w = dow(d); return holidayName(d) || w === 0 ? 'sun' : w === 6 ? 'sat' : ''; }
+function dlabel(d) { const h = holidayName(d); return dateLabel(d) + (h ? `<span class="hol">${esc(h)}</span>` : ''); }
 function nameOf(id) { const s = staffAll.find(x => x.id === id); return s ? s.name.replace(/[ 　].*$/, '') : '?'; } // 苗字だけ表示
 
 function render() {
@@ -187,7 +212,7 @@ function renderShift() {
     const list = shifts.filter(s => s.date === d).sort((a, b) => a.start_min - b.start_min || a.staff_id - b.staff_id);
     const body = list.length ? list.map(s => `<div class="${s.staff_id === ME.id ? 'me' : ''}">${esc(nameOf(s.staff_id))} ${fmtMin(s.start_min)}〜${fmtMin(s.end_min)}${s.note ? ` <span class="tag">${esc(s.note)}</span>` : ''}</div>`).join('') : '<span class="empty">—</span>';
     return `<div class="day ${isAdmin() ? 'tap' : ''}" ${isAdmin() ? `onclick="openDay('${d}')"` : ''}>
-      <div class="d ${dcls(d)}">${dateLabel(d)}</div><div class="b ${d < today ? 'past' : ''}">${body}</div></div>`;
+      <div class="d ${dcls(d)}">${dlabel(d)}</div><div class="b ${d < today ? 'past' : ''}">${body}</div></div>`;
   }).join('') + `</div>`;
   return html;
 }
@@ -246,18 +271,24 @@ async function saveDay() {
 }
 
 // ================= 希望(自分の出られる日を出す)=================
+// 締切: 対象月の前月 deadlineDay 日(日本時間)まで。未設定なら締切なし
+function deadlineDate() { if (!deadlineDay) return null; const y = month.m === 1 ? month.y - 1 : month.y, m = month.m === 1 ? 12 : month.m - 1; return `${y}-${pad2(m)}-${pad2(deadlineDay)}`; }
+function reqClosed() { const dd = deadlineDate(); return !!dd && todayStr() > dd; }
 function renderReq() {
   let html = monthNav();
   if (!isWorker()) return html + `<div class="card"><div class="note">シフト希望を出すのは、勤怠の「打刻の対象」になっている人です。${isAdmin() ? '' : '対象になっていない場合は店主に伝えてください。'}</div></div>`;
-  const today = todayStr();
+  const today = todayStr(), closed = reqClosed(), dd = deadlineDate();
   const done = reqs.filter(r => r.staff_id === ME.id).length;
+  if (dd) html += closed
+    ? `<div class="card"><div class="err" style="margin:0;">この月の希望は締切(${dateLabel(dd)})を過ぎたため、変更できません。変更したい場合は店主・店長に伝えてください。</div></div>`
+    : `<div class="card"><div class="note" style="color:#f0cf7a;">この月の希望の締切: ${dateLabel(dd)}</div></div>`;
   html += `<div class="note" style="margin:0 2px 8px;">日ごとに ○出られる / △どちらでも / ×出られない を選んでください。もう一度押すと取り消せます。時間の希望は、メモ欄に書いてください(例:20時まで)。選んだ時点で自動保存されます。入力済み:${done}日</div><div class="card">`;
   html += days().map(d => {
     const rq = reqs.find(r => r.staff_id === ME.id && r.date === d);
-    const past = d < today, st = rq ? rq.status : '';
+    const past = d < today || closed, st = rq ? rq.status : '';
     const btn = (k, l) => `<button class="${k} ${st === k ? 'on' : ''}" ${past ? 'disabled' : ''} onclick="setReq('${d}','${k}')">${l}</button>`;
     const mySh = shifts.find(s => s.staff_id === ME.id && s.date === d);
-    return `<div class="day"><div class="d ${dcls(d)}">${dateLabel(d)}</div><div class="b ${past ? 'past' : ''}">
+    return `<div class="day"><div class="d ${dcls(d)}">${dlabel(d)}</div><div class="b ${past ? 'past' : ''}">
       <div class="seg">${btn('ok', '○')}${btn('any', '△')}${btn('ng', '×')}</div>
       ${rq && !past ? `<input class="memo" maxlength="40" placeholder="メモ(任意)" value="${esc(rq.note || '')}" onchange="setNote('${d}',this.value)">` : (rq && rq.note ? `<div class="note">${esc(rq.note)}</div>` : '')}
       ${mySh ? `<div class="me" style="margin-top:4px;">確定シフト ${fmtMin(mySh.start_min)}〜${fmtMin(mySh.end_min)}</div>` : ''}
