@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>開店・閉店チェックリスト</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg: #f4f5f7;
@@ -176,6 +177,48 @@
 
   .hidden { display: none !important; }
 
+  /* ---- 店主専用: 項目別の月次ビュー ---- */
+  .owner-note {
+    font-size: 11.5px; color: var(--text-sub); line-height: 1.6;
+    text-align: center; margin: 4px 4px 10px;
+  }
+  .owner-filter {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 13px; margin-bottom: 10px;
+  }
+  .owner-filter input { width: 18px; height: 18px; }
+  .owner-sec-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 700; margin: 16px 4px 8px;
+  }
+  .owner-sec-title.open { color: var(--open-color); }
+  .owner-sec-title.close { color: var(--close-color); }
+  .owner-item {
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 12px; padding: 10px 14px; margin-bottom: 6px; box-shadow: var(--shadow);
+  }
+  .owner-item.has-miss { border-color: #f5b5b5; }
+  .owner-item-head {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+  }
+  .owner-item-name { flex: 1; font-size: 14px; line-height: 1.4; }
+  .owner-item-count {
+    font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    background: var(--check-bg); color: var(--check-text); white-space: nowrap;
+  }
+  .owner-item-count.miss { background: #dc2626; }
+  .owner-item-count.none { background: var(--pill-bg); color: var(--text-sub); }
+  .owner-miss-days { display: none; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .owner-item.expanded .owner-miss-days { display: flex; }
+  .miss-chip {
+    font-size: 12px; padding: 4px 9px; border-radius: 8px;
+    background: var(--close-bg); color: var(--close-color); border: none; font-weight: 700;
+  }
+  .owner-login-link {
+    display: block; text-align: center; font-size: 11px; color: var(--text-sub);
+    margin-top: 22px; text-decoration: none;
+  }
+
   .lock-banner {
     display: flex; align-items: center; gap: 8px;
     background: #fff7e6; color: #92650a; border: 1px solid #f5deb3;
@@ -218,6 +261,7 @@
     <div class="tabs">
       <button id="tabDaily" class="active">日次</button>
       <button id="tabMonth">月次</button>
+      <button id="tabOwner" class="hidden">項目別🔒</button>
     </div>
   </header>
 
@@ -260,6 +304,24 @@
     <div id="monthList"></div>
     <div class="status-line" id="monthStatusLine"></div>
   </div>
+
+  <!-- 店主専用: 全項目の月次リスト(その月に未実施の項目を確認) -->
+  <div id="ownerView" class="hidden">
+    <div class="month-nav">
+      <button class="arrow" id="prevOwnerMonth">‹</button>
+      <div class="month-label" id="ownerMonthLabel">-</div>
+      <button class="arrow" id="nextOwnerMonth">›</button>
+    </div>
+    <div class="owner-note" id="ownerNote"></div>
+    <label class="owner-filter">
+      <input type="checkbox" id="ownerOnlyMiss">
+      <span>未実施のある項目だけ表示</span>
+    </label>
+    <div id="ownerList"></div>
+    <div class="status-line" id="ownerStatusLine"></div>
+  </div>
+
+  <a class="owner-login-link" href="./home.html">店主の方はこちらからログイン(ホーム画面へ)</a>
 </div>
 
 <script>
@@ -276,7 +338,7 @@ const OPEN_ITEMS = [
   "レジチェック",
   "ダスター洗浄",
   "生樽洗浄",
-  "ドリンク、食材補充",
+  "ドリンク、食材補充、消費期限確認",
   "メニュー作成",
   "仕込み",
   "エアコン、テレビ確認",
@@ -604,22 +666,137 @@ function daysInMonth(y, m) {
 function pad2(n) { return String(n).padStart(2, "0"); }
 
 function switchTab(tab) {
-  const daily = document.getElementById("dailyView");
-  const month = document.getElementById("monthView");
-  const tabDaily = document.getElementById("tabDaily");
-  const tabMonth = document.getElementById("tabMonth");
-  if (tab === "daily") {
-    daily.classList.remove("hidden");
-    month.classList.add("hidden");
-    tabDaily.classList.add("active");
-    tabMonth.classList.remove("active");
-  } else {
-    daily.classList.add("hidden");
-    month.classList.remove("hidden");
-    tabDaily.classList.remove("active");
-    tabMonth.classList.add("active");
-    loadMonth(currentMonth.y, currentMonth.m);
+  if (tab === "owner" && !isOwner) tab = "daily"; // 店主以外は項目別ビューに入れない
+  const views = { daily: "dailyView", month: "monthView", owner: "ownerView" };
+  const tabs = { daily: "tabDaily", month: "tabMonth", owner: "tabOwner" };
+  Object.keys(views).forEach(k => {
+    document.getElementById(views[k]).classList.toggle("hidden", k !== tab);
+    document.getElementById(tabs[k]).classList.toggle("active", k === tab);
+  });
+  if (tab === "month") loadMonth(currentMonth.y, currentMonth.m);
+  if (tab === "owner") loadOwnerMonth(ownerMonth.y, ownerMonth.m);
+}
+
+// ---- 店主専用: 項目別の月次ビュー ----
+// home.html と同じSupabaseログイン(同一オリジンで共有されるセッション)で店主かどうかを判定する。
+// 判定に失敗した場合(未ログイン・通信エラー・CDN読み込み失敗など)は店主扱いにせず、タブを出さない。
+// 注意: これは画面上の出し分け。チェック結果そのものはこれまで通りanonで読めるデータを集計している。
+let isOwner = false;
+let ownerMonth = { y: currentMonth.y, m: currentMonth.m };
+
+async function detectOwner() {
+  try {
+    if (!window.supabase) return;
+    const client = window.supabase.createClient(SUPABASE_URL, "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6");
+    const { data: { session } } = await client.auth.getSession();
+    if (!session) return;
+    const { data, error } = await client.from("staff").select("role").eq("auth_user_id", session.user.id).maybeSingle();
+    if (error) throw error;
+    if (data && data.role === "owner") {
+      isOwner = true;
+      document.getElementById("tabOwner").classList.remove("hidden");
+      document.querySelector(".owner-login-link").classList.add("hidden");
+    }
+  } catch (e) {
+    console.error("owner check failed", e);
   }
+}
+
+// 1項目ごとに、その月の「実施できた日」「未実施の日」を集計する。
+// ・今日(営業日)はまだ入力途中なので対象に含めない
+// ・チェックの記録が1件もない日(休業日など)は対象外
+function aggregateItems(items, kind, docsByDate, y, m, todayS) {
+  const total = daysInMonth(y, m);
+  return items.map((name, idx) => {
+    const done = [];
+    const miss = [];
+    for (let day = 1; day <= total; day++) {
+      const dStr = `${y}-${pad2(m)}-${pad2(day)}`;
+      if (dStr >= todayS) continue;
+      const rec = docsByDate[dStr];
+      if (!rec) continue;
+      const arr = rec[kind] || [];
+      (arr[idx] ? done : miss).push(day);
+    }
+    return { name, done, miss };
+  });
+}
+
+function renderOwnerSection(title, kind, rows, onlyMiss) {
+  const shown = onlyMiss ? rows.filter(r => r.miss.length > 0) : rows;
+  let html = `<div class="owner-sec-title ${kind}"><span class="badge ${kind}"></span>${title}</div>`;
+  if (shown.length === 0) {
+    html += `<div class="owner-note">未実施の項目はありません 🎉</div>`;
+    return html;
+  }
+  shown.forEach(r => {
+    const counted = r.done.length + r.miss.length;
+    const countCls = counted === 0 ? "none" : (r.miss.length > 0 ? "miss" : "");
+    const countTxt = counted === 0 ? "記録なし" : `${r.done.length}/${counted}日`;
+    const chips = r.miss.map(d => `<button class="miss-chip" data-day="${d}">${d}日</button>`).join("");
+    html += `
+      <div class="owner-item ${r.miss.length > 0 ? "has-miss" : ""}">
+        <div class="owner-item-head">
+          <div class="owner-item-name">${r.name}</div>
+          <div class="owner-item-count ${countCls}">${countTxt}</div>
+        </div>
+        <div class="owner-miss-days">${chips || ""}</div>
+      </div>`;
+  });
+  return html;
+}
+
+async function loadOwnerMonth(y, m) {
+  if (!isOwner) return;
+  document.getElementById("ownerMonthLabel").textContent = `${y}年${m}月`;
+  const listEl = document.getElementById("ownerList");
+  const statusEl = document.getElementById("ownerStatusLine");
+  const noteEl = document.getElementById("ownerNote");
+  listEl.innerHTML = "";
+  statusEl.textContent = "読み込み中...";
+  noteEl.textContent = "";
+
+  const total = daysInMonth(y, m);
+  let docsByDate = {};
+  try {
+    const rows = await sbGetRange(`${y}-${pad2(m)}-01`, `${y}-${pad2(m)}-${pad2(total)}`);
+    rows.forEach(r => { docsByDate[r.date] = { open: r.open, close: r.close }; });
+  } catch (e) {
+    statusEl.textContent = "月次データの取得に失敗しました";
+    return;
+  }
+  if (y !== ownerMonth.y || m !== ownerMonth.m) return; // 読み込み中に別の月へ移動していたら破棄
+  statusEl.textContent = "";
+
+  const todayS = businessDateStr(new Date());
+  const recordedDays = Object.keys(docsByDate).filter(d => d < todayS).length;
+  noteEl.textContent = `記録のある ${recordedDays} 日分で集計(本日分と、チェックの記録が無い日は含みません)。項目をタップすると未実施の日が開き、日付をタップするとその日に移動します。`;
+
+  const onlyMiss = document.getElementById("ownerOnlyMiss").checked;
+  const openRows = aggregateItems(OPEN_ITEMS, "open", docsByDate, y, m, todayS);
+  const closeRows = aggregateItems(CLOSE_ITEMS, "close", docsByDate, y, m, todayS);
+  listEl.innerHTML =
+    renderOwnerSection("OPEN 開店チェック", "open", openRows, onlyMiss) +
+    renderOwnerSection("CLOSE 閉店チェック", "close", closeRows, onlyMiss);
+
+  listEl.querySelectorAll(".owner-item-head").forEach(head => {
+    head.addEventListener("click", () => head.parentElement.classList.toggle("expanded"));
+  });
+  listEl.querySelectorAll(".miss-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      goToDate(`${y}-${pad2(m)}-${pad2(Number(chip.dataset.day))}`);
+      switchTab("daily");
+    });
+  });
+}
+
+function shiftOwnerMonth(delta) {
+  let { y, m } = ownerMonth;
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  ownerMonth = { y, m };
+  loadOwnerMonth(y, m);
 }
 
 async function loadMonth(y, m) {
@@ -696,11 +873,16 @@ function shiftMonth(delta) {
 
 document.getElementById("tabDaily").addEventListener("click", () => switchTab("daily"));
 document.getElementById("tabMonth").addEventListener("click", () => switchTab("month"));
+document.getElementById("tabOwner").addEventListener("click", () => switchTab("owner"));
+document.getElementById("prevOwnerMonth").addEventListener("click", () => shiftOwnerMonth(-1));
+document.getElementById("nextOwnerMonth").addEventListener("click", () => shiftOwnerMonth(1));
+document.getElementById("ownerOnlyMiss").addEventListener("change", () => loadOwnerMonth(ownerMonth.y, ownerMonth.m));
 document.getElementById("prevMonth").addEventListener("click", () => shiftMonth(-1));
 document.getElementById("nextMonth").addEventListener("click", () => shiftMonth(1));
 
 function init() {
   goToDate(currentDate);
+  detectOwner(); // 店主ログイン中なら「項目別」タブを出す(失敗しても日次チェックには影響しない)
 
   // 7:00の境界をまたいだら自動でロック表示に切り替える(1分毎に確認・書き込みは行わない)
   setInterval(() => {

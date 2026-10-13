@@ -18,7 +18,7 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 |---|---|
 | `home.html` | 統一ログイン画面。ログイン後、役割(role)に応じて使えるアプリのタイルだけを表示する入り口 |
 | `pos.html` | レジ本体。テーブル管理・注文・会計・レジ金管理・売上集計 |
-| `checklist.html` | 開店・閉店チェックリスト |
+| `checklist.html` | 開店・閉店チェックリスト(日次/月次 + 店主専用の項目別月次) |
 | `expense-app.html` | 経費帳(レシート管理) |
 | `keiei-dashboard.html` | 経営ダッシュボード(店主専用)。売上/経費/給与の集計、各種マスタ管理 |
 
@@ -36,6 +36,35 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
   根本対策にはRLSポリシーの整備が必要(未着手)。
 - Edge Function `admin-create-staff-user` をデプロイ済み。経営ダッシュボードの「ログインアカウントを
   新規作成」機能から呼ばれる。service role keyを使い、呼び出し元がowner権限か毎回サーバー側で確認する。
+
+### DBテーブル一覧(2026-10-13時点・Supabaseで確認)
+
+| テーブル | RLS | 備考 |
+| --- | --- | --- |
+| `categories, menu, tables, sales, cash_logs, settings, vendors, payroll, tax_rates` | **無効** | 上記「重要な既知の弱点」参照 |
+| `staff` | 有効 | 従業員マスタ。`role`列(owner/manager/staff/accounting)、`auth_user_id`でSupabase Authと紐付け。ログイン済みは閲覧可、編集は`is_owner()`のみ |
+| `expenses` | 有効 | 経費帳(日付・金額・取引先・科目・支払方法・レシート有無・除外フラグ) |
+| `petty_cash` | 有効 | 小口現金(入金/出金_釣銭/出金_経費/差異)。`linked_expense_id`で`expenses`と紐付け |
+| `vendor_category_map` | 有効 | 取引先→経費科目の対応表 |
+| `app_admins` | 有効 | 管理者ユーザーID(`auth.users`参照) |
+| `checklist_checks` | 有効 | 開店・閉店チェックリストの記録(下記「チェックリスト」参照) |
+| `quotes` | 有効 | 見積書データ(番号・日付・顧客・件名・ステータス・税込合計・`data`jsonb) |
+| `quote_config` | 有効 | 見積関連の設定(key/value jsonb) |
+
+## チェックリスト(checklist.html)補足
+
+- 項目は `OPEN_ITEMS`(開店)/`CLOSE_ITEMS`(閉店)の配列で、**チェック結果は項目の「並び順(位置)」でbooleanの配列としてDBに保存**している。
+  **項目を途中に挿入・削除・並べ替えすると、過去の記録が別の項目のチェックとして読まれてしまう**。
+  文言の変更は安全。項目を増やすときは末尾に追加するか、過去分の移行を行うこと。
+- 2026-10-13: 開店項目「ドリンク、食材補充」を「ドリンク、食材補充、消費期限確認」に変更(位置は変えていない)。
+- 日々のチェックはログイン不要(anon)。`checklist_checks`はRLS有効だが、anonに対する select/insert/update ポリシーが付いている。
+- 営業日は7:00〜翌6:59。過去日は編集不可、開店チェックは18:00で締め切り、閉店チェックは営業日中ずっと編集可。
+- **店主専用「項目別🔒」タブ(2026-10-13追加)**: home.htmlと同じSupabaseログインのセッションを共有し、
+  `staff.role = 'owner'` の場合だけタブを表示する。開店・閉店の全項目について、その月に何日実施できたか/未実施の日はいつかを一覧する
+  (「未実施のある項目だけ表示」の切替あり。日付をタップするとその日の日次画面へ移動)。
+  集計の対象外: 本日分、およびチェックの記録が1件もない日(休業日など)。
+  ※画面上の出し分けのみ。集計元の`checklist_checks`はanonで読めるデータで、DB側で店主限定にはなっていない。
+- 店主がログインしていない場合、ページ下部の「店主の方はこちらからログイン」リンクでhome.htmlへ移動する。
 
 ## 経営ダッシュボード(keiei-dashboard.html)補足
 
