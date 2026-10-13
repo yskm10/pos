@@ -177,57 +177,59 @@
 
   .hidden { display: none !important; }
 
-  /* ---- 店主専用: 抜き打ち確認 ---- */
+  /* ---- 店主専用: 月次確認 ---- */
   .owner-note {
     font-size: 11.5px; color: var(--text-sub); line-height: 1.6;
     text-align: center; margin: 4px 4px 10px;
   }
-  .sub-tabs {
-    display: flex; gap: 6px; margin: 12px 0 4px;
+  .record-date {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 13px; margin-bottom: 8px;
   }
-  .sub-tabs button {
-    flex: 1; border: 1px solid var(--border); background: var(--card-bg); color: var(--text-sub);
-    font-size: 13px; font-weight: 700; padding: 8px 0; border-radius: 10px;
+  .record-date input {
+    font-size: 14px; padding: 5px 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card-bg); color: var(--text);
   }
-  .sub-tabs button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .audit-summary {
+    text-align: center; font-size: 14px; font-weight: 700; margin: 6px 0;
+  }
+  .owner-filter {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 13px; margin-bottom: 6px;
+  }
+  .owner-filter input { width: 18px; height: 18px; }
   .owner-sec-title {
     display: flex; align-items: center; gap: 8px;
     font-size: 14px; font-weight: 700; margin: 16px 4px 8px;
   }
   .owner-sec-title.open { color: var(--open-color); }
   .owner-sec-title.close { color: var(--close-color); }
-  .audit-item, .rank-item {
+  .owner-sec-title.other { color: var(--text-sub); }
+  .audit-item {
     background: var(--card-bg); border: 1px solid var(--border);
-    border-radius: 12px; padding: 10px 14px; margin-bottom: 6px; box-shadow: var(--shadow);
+    border-radius: 12px; padding: 8px 10px 8px 14px; margin-bottom: 6px; box-shadow: var(--shadow);
   }
-  .audit-name { font-size: 14px; line-height: 1.4; margin-bottom: 8px; }
-  .audit-btns { display: flex; gap: 8px; }
-  .audit-btn {
-    flex: 1; border: 1px solid var(--border); background: var(--pill-bg); color: var(--text-sub);
-    font-size: 13px; font-weight: 700; padding: 9px 4px; border-radius: 9px;
-    touch-action: manipulation;
+  .audit-item.has-ng { border-color: #f5b5b5; }
+  .audit-row { display: flex; align-items: center; gap: 8px; }
+  .audit-name { flex: 1; font-size: 14px; line-height: 1.4; cursor: pointer; }
+  .audit-count {
+    font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+    background: var(--pill-bg); color: var(--text-sub); white-space: nowrap;
   }
-  .audit-btn.ok.on { background: var(--check-bg); border-color: var(--check-bg); color: #fff; }
-  .audit-btn.ng.on { background: #dc2626; border-color: #dc2626; color: #fff; }
-  .rank-item.has-ng { border-color: #f5b5b5; }
-  .rank-head { display: flex; align-items: center; gap: 10px; }
-  .rank-name { flex: 1; font-size: 14px; line-height: 1.4; }
-  .rank-pill {
-    font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
-    background: #dc2626; color: #fff; white-space: nowrap;
+  .audit-count.ng { background: #dc2626; color: #fff; }
+  .audit-add {
+    border: 1px solid #dc2626; background: transparent; color: #dc2626;
+    font-size: 12.5px; font-weight: 700; padding: 8px 10px; border-radius: 9px;
+    white-space: nowrap; touch-action: manipulation;
   }
-  .rank-pill.ok { background: var(--check-bg); }
-  .rank-dates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .audit-add:active { background: #dc2626; color: #fff; }
+  .audit-dates { display: none; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .audit-item.expanded .audit-dates { display: flex; }
   .miss-chip {
-    font-size: 12px; padding: 4px 9px; border-radius: 8px;
+    font-size: 12px; padding: 5px 10px; border-radius: 8px;
     background: var(--close-bg); color: var(--close-color); border: none; font-weight: 700;
     touch-action: manipulation;
   }
-  .period-select {
-    display: block; margin: 0 auto 8px; font-size: 13px; padding: 6px 10px;
-    border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text);
-  }
-  .unaudited-box { font-size: 12.5px; color: var(--text-sub); line-height: 1.8; margin: 8px 4px; }
   .owner-login-link {
     display: block; text-align: center; font-size: 11px; color: var(--text-sub);
     margin-top: 22px; text-decoration: none;
@@ -275,7 +277,7 @@
     <div class="tabs">
       <button id="tabDaily" class="active">日次</button>
       <button id="tabMonth">月次</button>
-      <button id="tabOwner" class="hidden">抜き打ち確認🔒</button>
+      <button id="tabOwner" class="hidden">月次確認🔒</button>
     </div>
   </header>
 
@@ -319,34 +321,22 @@
     <div class="status-line" id="monthStatusLine"></div>
   </div>
 
-  <!-- 店主専用: 抜き打ち確認(チェックが入っていても実際はやっていない項目を把握する) -->
+  <!-- 店主専用: 月次確認(チェックが入っていても実際はやっていなかった項目を、月ごとに回数で把握する) -->
   <div id="ownerView" class="hidden">
-    <div class="sub-tabs">
-      <button id="subCheck" class="active">確認する</button>
-      <button id="subRank">要注意ランキング</button>
+    <div class="month-nav">
+      <button class="arrow" id="prevAuditMonth">‹</button>
+      <div class="month-label" id="auditMonthLabel">-</div>
+      <button class="arrow" id="nextAuditMonth">›</button>
     </div>
-
-    <div id="auditCheckPane">
-      <div class="month-nav">
-        <button class="arrow" id="prevAuditDay">‹</button>
-        <div class="month-label" id="auditDateLabel">-</div>
-        <button class="arrow" id="nextAuditDay">›</button>
-      </div>
-      <div class="owner-note">自分の目で確認できた項目だけ、「確認OK」か「やってなかった」を押してください(もう一度押すと取り消し)。押していない項目は集計に入りません。</div>
-      <div id="auditList"></div>
-      <div class="status-line" id="auditStatusLine"></div>
-    </div>
-
-    <div id="auditRankPane" class="hidden">
-      <select class="period-select" id="auditPeriod">
-        <option value="30">直近30日</option>
-        <option value="90" selected>直近90日</option>
-        <option value="0">全期間</option>
-      </select>
-      <div class="owner-note">確認した回数のうち「やってなかった」だった割合が高い順です。</div>
-      <div id="rankList"></div>
-      <div class="status-line" id="rankStatusLine"></div>
-    </div>
+    <div class="owner-note">チェックは入っているのに実際はやっていなかった項目を現場で確認できたら、項目の横の「できてない」を押してください。記録日に1回カウントされ、その月の回数が項目の横に出ます。項目名をタップすると記録した日が開き、日付をタップすると取り消せます。</div>
+    <div class="record-date"><label>記録日 <input type="date" id="auditRecordDate"></label></div>
+    <div class="audit-summary" id="auditSummary"></div>
+    <label class="owner-filter">
+      <input type="checkbox" id="auditOnlyNg">
+      <span>できてない記録のある項目だけ表示</span>
+    </label>
+    <div id="auditList"></div>
+    <div class="status-line" id="auditStatusLine"></div>
   </div>
 
   
@@ -695,7 +685,7 @@ function daysInMonth(y, m) {
 function pad2(n) { return String(n).padStart(2, "0"); }
 
 function switchTab(tab) {
-  if (tab === "owner" && !isOwner) tab = "daily"; // 店主以外は抜き打ち確認ビューに入れない
+  if (tab === "owner" && !isOwner) tab = "daily"; // 店主以外は月次確認ビューに入れない
   const views = { daily: "dailyView", month: "monthView", owner: "ownerView" };
   const tabs = { daily: "tabDaily", month: "tabMonth", owner: "tabOwner" };
   Object.keys(views).forEach(k => {
@@ -706,26 +696,31 @@ function switchTab(tab) {
   if (tab === "owner") openOwnerView();
 }
 
-// ---- 店主専用: 抜き打ち確認 ----
-// 「チェックは入っているのに実際はやっていない」項目を把握するため、店主が現場で確認した結果
-// (ok=確認OK / ng=やってなかった)を checklist_audits に記録し、項目ごとに集計する。
+// ---- 店主専用: 月次確認 ----
+// 「チェックは入っているのに実際はやっていない」項目を把握するため、店主が現場で確認できたら
+// 「できてない」を押して checklist_audits に result='ng' で記録し、項目ごとに月次で回数を数える。
+// (1日・1項目につき最大1回。同じ日に押し直しても二重にはならない)
 // home.html と同じSupabaseログイン(同一オリジンで共有されるセッション)で店主かどうかを判定する。
 // checklist_audits はRLSで店主(is_owner())だけが読み書きできる。判定に失敗した場合はタブを出さない。
 let isOwner = false;
 let ownerClient = null;
-let auditDate = currentDate;
-let auditMap = {};              // "kind|項目名" -> "ok" | "ng"
-let auditDoc = { open: [], close: [] };
-const auditPending = new Set(); // 同一項目への二重タップ防止
+let auditMonth = { y: currentMonth.y, m: currentMonth.m };
+let auditNg = {};               // "kind|項目名" -> ["2026-10-03", ...](表示中の月の「できてない」記録日)
+let auditRecordDate = currentDate;
+const auditPending = new Set(); // 同一項目・同一日への二重タップ防止
+const auditExpanded = new Set(); // 記録日を開いている項目
+let auditStatusTimer = null;
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function auditKey(kind, name) { return kind + "|" + name; }
-function addDaysStr(dateStr, n) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + n);
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+function auditMonthKey() { return `${auditMonth.y}-${pad2(auditMonth.m)}`; }
+function auditStatus(msg, keep) {
+  const el = document.getElementById("auditStatusLine");
+  el.textContent = msg;
+  clearTimeout(auditStatusTimer);
+  if (msg && !keep) auditStatusTimer = setTimeout(() => { el.textContent = ""; }, 2500);
 }
 
 async function detectOwner() {
@@ -747,110 +742,25 @@ async function detectOwner() {
   }
 }
 
+// 記録日の初期値: 表示中の月が今月なら今日(営業日)、過去の月ならその月の末日
+function defaultRecordDate() {
+  const todayS = businessDateStr(new Date());
+  const prefix = auditMonthKey();
+  if (todayS.startsWith(prefix)) return todayS;
+  return `${prefix}-${pad2(daysInMonth(auditMonth.y, auditMonth.m))}`;
+}
+
 function openOwnerView() {
   if (!isOwner) return;
-  if (document.getElementById("subRank").classList.contains("active")) loadAuditRank();
-  else loadAuditDay();
+  loadAuditMonth();
 }
 
-function setSubTab(which) {
-  document.getElementById("subCheck").classList.toggle("active", which === "check");
-  document.getElementById("subRank").classList.toggle("active", which === "rank");
-  document.getElementById("auditCheckPane").classList.toggle("hidden", which !== "check");
-  document.getElementById("auditRankPane").classList.toggle("hidden", which !== "rank");
-  if (which === "rank") loadAuditRank(); else loadAuditDay();
-}
-
-// -- 確認する(日別) --
-async function loadAuditDay() {
-  if (!isOwner) return;
-  const dateStr = auditDate;
-  const { weekday, date } = formatLabel(dateStr);
-  document.getElementById("auditDateLabel").textContent = `${date}(${weekday.charAt(0)})`;
-  const statusEl = document.getElementById("auditStatusLine");
-  statusEl.textContent = "読み込み中...";
-  try {
-    const [row, res] = await Promise.all([
-      sbGetOne(dateStr),
-      ownerClient.from("checklist_audits").select("kind,item_name,result").eq("date", dateStr),
-    ]);
-    if (res.error) throw res.error;
-    if (dateStr !== auditDate) return; // 読み込み中に別の日へ移動していたら破棄
-    auditDoc = { open: (row && row.open) || [], close: (row && row.close) || [] };
-    auditMap = {};
-    (res.data || []).forEach(r => { auditMap[auditKey(r.kind, r.item_name)] = r.result; });
-    statusEl.textContent = "";
-    renderAuditDay();
-  } catch (e) {
-    statusEl.textContent = "読み込みに失敗しました: " + (e && e.message ? e.message : String(e));
-  }
-}
-
-function auditSectionHtml(title, kind, items, arr) {
-  let rows = "";
-  let checkedCount = 0;
-  items.forEach((name, i) => {
-    if (!arr[i]) return; // チェックが入っていない項目は「実際はやってない」を疑う対象ではない
-    checkedCount++;
-    const st = auditMap[auditKey(kind, name)];
-    rows += `
-      <div class="audit-item" data-kind="${kind}" data-name="${esc(name)}">
-        <div class="audit-name">${esc(name)}</div>
-        <div class="audit-btns">
-          <button class="audit-btn ok ${st === "ok" ? "on" : ""}" data-result="ok">確認OK</button>
-          <button class="audit-btn ng ${st === "ng" ? "on" : ""}" data-result="ng">やってなかった</button>
-        </div>
-      </div>`;
-  });
-  const uncheckedCount = items.length - checkedCount;
-  const tail = uncheckedCount > 0 ? `<div class="owner-note">チェックが入っていない ${uncheckedCount} 項目は対象外です</div>` : "";
-  return `<div class="owner-sec-title ${kind}"><span class="badge ${kind}"></span>${title}(チェック済み ${checkedCount})</div>` +
-    (checkedCount === 0 ? `<div class="owner-note">この日、チェックが入った項目はありません</div>` : rows) + tail;
-}
-
-function renderAuditDay() {
-  document.getElementById("auditList").innerHTML =
-    auditSectionHtml("OPEN 開店チェック", "open", OPEN_ITEMS, auditDoc.open || []) +
-    auditSectionHtml("CLOSE 閉店チェック", "close", CLOSE_ITEMS, auditDoc.close || []);
-}
-
-async function setAudit(kind, name, result) {
-  const key = auditKey(kind, name);
-  if (auditPending.has(key)) return;
-  auditPending.add(key);
-  const dateStr = auditDate;
-  const prev = auditMap[key];
-  const clearing = prev === result; // 同じボタンをもう一度押したら取り消し
-  if (clearing) delete auditMap[key]; else auditMap[key] = result;
-  renderAuditDay();
-  try {
-    let error;
-    if (clearing) {
-      ({ error } = await ownerClient.from("checklist_audits").delete()
-        .eq("date", dateStr).eq("kind", kind).eq("item_name", name));
-    } else {
-      ({ error } = await ownerClient.from("checklist_audits")
-        .upsert({ date: dateStr, kind, item_name: name, result }, { onConflict: "date,kind,item_name" }));
-    }
-    if (error) throw error;
-    document.getElementById("auditStatusLine").textContent = "";
-  } catch (e) {
-    if (dateStr === auditDate) {
-      if (prev === undefined) delete auditMap[key]; else auditMap[key] = prev;
-      renderAuditDay();
-      document.getElementById("auditStatusLine").textContent = "保存に失敗しました: " + (e && e.message ? e.message : String(e));
-    }
-  } finally {
-    auditPending.delete(key);
-  }
-}
-
-// -- 要注意ランキング --
-async function fetchAuditRows(since) {
+async function fetchNgRows(start, end) {
   const all = [];
   for (let from = 0; ; from += 1000) {
     const res = await ownerClient.from("checklist_audits")
-      .select("date,kind,item_name,result").gte("date", since)
+      .select("kind,item_name,date").eq("result", "ng")
+      .gte("date", start).lte("date", end)
       .order("date", { ascending: true }).range(from, from + 999);
     if (res.error) throw res.error;
     all.push(...(res.data || []));
@@ -859,78 +769,165 @@ async function fetchAuditRows(since) {
   return all;
 }
 
-async function loadAuditRank() {
+async function loadAuditMonth() {
   if (!isOwner) return;
-  const statusEl = document.getElementById("rankStatusLine");
-  const listEl = document.getElementById("rankList");
-  const days = Number(document.getElementById("auditPeriod").value);
-  const since = days ? addDaysStr(businessDateStr(new Date()), -days) : "2000-01-01";
-  statusEl.textContent = "読み込み中...";
-  listEl.innerHTML = "";
-  let rows;
+  const { y, m } = auditMonth;
+  const mk = auditMonthKey();
+  const total = daysInMonth(y, m);
+  document.getElementById("auditMonthLabel").textContent = `${y}年${m}月`;
+
+  // 記録日は表示中の月の範囲に収める(未来の日付は不可)
+  const todayS = businessDateStr(new Date());
+  const first = `${mk}-01`;
+  const last = `${mk}-${pad2(total)}`;
+  const maxDate = last < todayS ? last : todayS;
+  if (!auditRecordDate.startsWith(mk) || auditRecordDate > maxDate) auditRecordDate = defaultRecordDate();
+  const dateInput = document.getElementById("auditRecordDate");
+  dateInput.min = first;
+  dateInput.max = maxDate;
+  dateInput.value = auditRecordDate;
+
+  auditStatus("読み込み中...", true);
   try {
-    rows = await fetchAuditRows(since);
+    const rows = await fetchNgRows(first, last);
+    if (mk !== auditMonthKey()) return; // 読み込み中に別の月へ移動していたら破棄
+    auditNg = {};
+    rows.forEach(r => {
+      const k = auditKey(r.kind, r.item_name);
+      (auditNg[k] || (auditNg[k] = [])).push(r.date);
+    });
+    auditStatus("");
+    renderAuditMonth();
   } catch (e) {
-    statusEl.textContent = "読み込みに失敗しました: " + (e && e.message ? e.message : String(e));
-    return;
+    auditStatus("読み込みに失敗しました: " + (e && e.message ? e.message : String(e)), true);
   }
-  statusEl.textContent = "";
-
-  const stats = {};
-  const auditedDays = new Set();
-  rows.forEach(r => {
-    auditedDays.add(r.date);
-    const k = auditKey(r.kind, r.item_name);
-    const s = stats[k] || (stats[k] = { kind: r.kind, name: r.item_name, ok: 0, ng: 0, ngDates: [] });
-    if (r.result === "ng") { s.ng++; s.ngDates.push(r.date); } else { s.ok++; }
-  });
-  const list = Object.values(stats);
-  const problem = list.filter(s => s.ng > 0)
-    .sort((a, b) => (b.ng / (b.ok + b.ng)) - (a.ng / (a.ok + a.ng)) || b.ng - a.ng);
-  const clean = list.filter(s => s.ng === 0).sort((a, b) => b.ok - a.ok);
-  const never = [
-    ...OPEN_ITEMS.filter(n => !stats[auditKey("open", n)]).map(n => ["開", n]),
-    ...CLOSE_ITEMS.filter(n => !stats[auditKey("close", n)]).map(n => ["閉", n]),
-  ];
-
-  const kindLabel = k => (k === "open" ? "開" : "閉");
-  const dateChip = d => `<button class="miss-chip" data-date="${d}">${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}</button>`;
-
-  let html = `<div class="owner-note">確認記録 ${rows.length}件(${auditedDays.size}日分)</div>`;
-  if (rows.length === 0) {
-    html += `<div class="owner-note">まだ確認記録がありません。「確認する」から、現場で確認した項目を記録してください。</div>`;
-  } else {
-    html += `<div class="owner-sec-title close">⚠ 要注意(やってなかった記録あり)</div>`;
-    html += problem.length === 0 ? `<div class="owner-note">今のところ、やってなかった記録はありません</div>` :
-      problem.map(s => {
-        const total = s.ok + s.ng;
-        return `
-        <div class="rank-item has-ng">
-          <div class="rank-head">
-            <div class="rank-name">[${kindLabel(s.kind)}] ${esc(s.name)}</div>
-            <div class="rank-pill">${s.ng}/${total}回 (${Math.round(s.ng / total * 100)}%)</div>
-          </div>
-          <div class="rank-dates">${s.ngDates.map(dateChip).join("")}</div>
-        </div>`;
-      }).join("");
-    html += `<div class="owner-sec-title open">確認してOKだった項目</div>`;
-    html += clean.length === 0 ? `<div class="owner-note">なし</div>` :
-      clean.map(s => `
-        <div class="rank-item">
-          <div class="rank-head">
-            <div class="rank-name">[${kindLabel(s.kind)}] ${esc(s.name)}</div>
-            <div class="rank-pill ok">OK ${s.ok}回</div>
-          </div>
-        </div>`).join("");
-  }
-  html += `<div class="unaudited-box"><b>まだ一度も確認していない項目(${never.length}件)</b><br>` +
-    (never.length ? never.map(([k, n]) => `[${k}] ${esc(n)}`).join("<br>") : "なし") + `</div>`;
-  listEl.innerHTML = html;
 }
 
-function shiftAuditDay(delta) {
-  auditDate = addDaysStr(auditDate, delta);
-  loadAuditDay();
+function auditRowHtml(kind, name, dates, withAdd) {
+  const key = auditKey(kind, name);
+  const cls = "audit-item" + (dates.length ? " has-ng" : "") + (auditExpanded.has(key) ? " expanded" : "");
+  const chips = dates.map(d =>
+    `<button class="miss-chip" data-date="${d}">${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} ✕</button>`).join("");
+  return `
+    <div class="${cls}" data-kind="${kind}" data-name="${esc(name)}">
+      <div class="audit-row">
+        <div class="audit-name">${esc(name)}</div>
+        <div class="audit-count ${dates.length ? "ng" : ""}">${dates.length}回</div>
+        ${withAdd ? `<button class="audit-add">できてない</button>` : ""}
+      </div>
+      <div class="audit-dates">${chips}</div>
+    </div>`;
+}
+
+function auditSectionHtml(title, kind, items, onlyNg) {
+  let rows = "";
+  let sectionTotal = 0;
+  items.forEach(name => {
+    const dates = auditNg[auditKey(kind, name)] || [];
+    sectionTotal += dates.length;
+    if (onlyNg && dates.length === 0) return;
+    rows += auditRowHtml(kind, name, dates, true);
+  });
+  return `<div class="owner-sec-title ${kind}"><span class="badge ${kind}"></span>${title}(今月 ${sectionTotal}回)</div>` +
+    (rows || `<div class="owner-note">できてない記録のある項目はありません</div>`);
+}
+
+function renderAuditMonth() {
+  const onlyNg = document.getElementById("auditOnlyNg").checked;
+  const known = new Set([
+    ...OPEN_ITEMS.map(n => auditKey("open", n)),
+    ...CLOSE_ITEMS.map(n => auditKey("close", n)),
+  ]);
+  // 項目名を変更する前に記録したものは、現在の項目一覧に出ないので別枠で表示する(数え落とし防止)
+  const orphanKeys = Object.keys(auditNg).filter(k => !known.has(k));
+  const total = Object.values(auditNg).reduce((n, a) => n + a.length, 0);
+  const itemCount = Object.values(auditNg).filter(a => a.length > 0).length;
+
+  document.getElementById("auditSummary").textContent =
+    `今月の「できてない」記録 ${total}回(${itemCount}項目)`;
+
+  let html = auditSectionHtml("OPEN 開店チェック", "open", OPEN_ITEMS, onlyNg) +
+             auditSectionHtml("CLOSE 閉店チェック", "close", CLOSE_ITEMS, onlyNg);
+  if (orphanKeys.length) {
+    html += `<div class="owner-sec-title other">その他(項目名を変更する前の記録)</div>` +
+      orphanKeys.map(k => {
+        const i = k.indexOf("|");
+        return auditRowHtml(k.slice(0, i), k.slice(i + 1), auditNg[k], false);
+      }).join("");
+  }
+  document.getElementById("auditList").innerHTML = html;
+}
+
+async function addNg(kind, name) {
+  const mk = auditMonthKey();
+  const date = auditRecordDate;
+  if (!date.startsWith(mk)) return;
+  const key = auditKey(kind, name);
+  const guard = key + "|" + date;
+  if (auditPending.has(guard)) return;
+  const arr = auditNg[key] || (auditNg[key] = []);
+  if (arr.includes(date)) {
+    auditStatus(`${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))} は記録済みです(別の日の記録は「記録日」を変えてください)`);
+    return;
+  }
+  auditPending.add(guard);
+  arr.push(date);
+  arr.sort();
+  renderAuditMonth();
+  try {
+    const { error } = await ownerClient.from("checklist_audits")
+      .upsert({ date, kind, item_name: name, result: "ng" }, { onConflict: "date,kind,item_name" });
+    if (error) throw error;
+    auditStatus(`記録しました(${name})`);
+  } catch (e) {
+    const i = arr.indexOf(date);
+    if (i >= 0) arr.splice(i, 1);
+    if (mk === auditMonthKey()) renderAuditMonth();
+    auditStatus("保存に失敗しました: " + (e && e.message ? e.message : String(e)), true);
+  } finally {
+    auditPending.delete(guard);
+  }
+}
+
+async function removeNg(kind, name, date) {
+  const mk = auditMonthKey();
+  const label = `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+  if (!window.confirm(`「${name}」の ${label} の記録を取り消しますか?`)) return;
+  const key = auditKey(kind, name);
+  const guard = key + "|" + date;
+  if (auditPending.has(guard)) return;
+  const arr = auditNg[key] || [];
+  const idx = arr.indexOf(date);
+  if (idx < 0) return;
+  auditPending.add(guard);
+  arr.splice(idx, 1);
+  renderAuditMonth();
+  try {
+    const { error } = await ownerClient.from("checklist_audits").delete()
+      .eq("date", date).eq("kind", kind).eq("item_name", name).eq("result", "ng");
+    if (error) throw error;
+    auditStatus("取り消しました");
+  } catch (e) {
+    arr.push(date);
+    arr.sort();
+    if (mk === auditMonthKey()) renderAuditMonth();
+    auditStatus("取り消しに失敗しました: " + (e && e.message ? e.message : String(e)), true);
+  } finally {
+    auditPending.delete(guard);
+  }
+}
+
+function shiftAuditMonth(delta) {
+  let { y, m } = auditMonth;
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  // 未来の月は記録できないので、今月より先には進ませない
+  const [ty, tm] = businessDateStr(new Date()).split("-").map(Number);
+  if (y * 12 + m > ty * 12 + tm) return;
+  auditMonth = { y, m };
+  auditRecordDate = defaultRecordDate();
+  loadAuditMonth();
 }
 
 async function loadMonth(y, m) {
@@ -1008,29 +1005,32 @@ function shiftMonth(delta) {
 document.getElementById("tabDaily").addEventListener("click", () => switchTab("daily"));
 document.getElementById("tabMonth").addEventListener("click", () => switchTab("month"));
 document.getElementById("tabOwner").addEventListener("click", () => switchTab("owner"));
-document.getElementById("subCheck").addEventListener("click", () => setSubTab("check"));
-document.getElementById("subRank").addEventListener("click", () => setSubTab("rank"));
-document.getElementById("prevAuditDay").addEventListener("click", () => shiftAuditDay(-1));
-document.getElementById("nextAuditDay").addEventListener("click", () => shiftAuditDay(1));
-document.getElementById("auditPeriod").addEventListener("change", () => loadAuditRank());
-document.getElementById("auditList").addEventListener("click", (e) => {
-  const btn = e.target.closest(".audit-btn");
-  if (!btn) return;
-  const item = btn.closest(".audit-item");
-  setAudit(item.dataset.kind, item.dataset.name, btn.dataset.result);
+document.getElementById("prevAuditMonth").addEventListener("click", () => shiftAuditMonth(-1));
+document.getElementById("nextAuditMonth").addEventListener("click", () => shiftAuditMonth(1));
+document.getElementById("auditRecordDate").addEventListener("change", (e) => {
+  if (e.target.value && e.target.value.startsWith(auditMonthKey())) auditRecordDate = e.target.value;
+  else e.target.value = auditRecordDate;
 });
-document.getElementById("rankList").addEventListener("click", (e) => {
+document.getElementById("auditOnlyNg").addEventListener("change", () => renderAuditMonth());
+document.getElementById("auditList").addEventListener("click", (e) => {
+  const item = e.target.closest(".audit-item");
+  if (!item) return;
+  const kind = item.dataset.kind, name = item.dataset.name;
+  if (e.target.closest(".audit-add")) { addNg(kind, name); return; }
   const chip = e.target.closest(".miss-chip");
-  if (!chip) return;
-  auditDate = chip.dataset.date;
-  setSubTab("check");
+  if (chip) { removeNg(kind, name, chip.dataset.date); return; }
+  if (e.target.closest(".audit-name")) { // 項目名タップで記録日の開閉
+    const key = auditKey(kind, name);
+    if (auditExpanded.has(key)) auditExpanded.delete(key); else auditExpanded.add(key);
+    item.classList.toggle("expanded");
+  }
 });
 document.getElementById("prevMonth").addEventListener("click", () => shiftMonth(-1));
 document.getElementById("nextMonth").addEventListener("click", () => shiftMonth(1));
 
 function init() {
   goToDate(currentDate);
-  detectOwner(); // 店主ログイン中なら「抜き打ち確認」タブを出す(失敗しても日次チェックには影響しない)
+  detectOwner(); // 店主ログイン中なら「月次確認」タブを出す(失敗しても日次チェックには影響しない)
 
   // 7:00の境界をまたいだら自動でロック表示に切り替える(1分毎に確認・書き込みは行わない)
   setInterval(() => {
