@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>出退勤の打刻</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 body{background:#0f1117;font-family:'Helvetica Neue',Arial,'Hiragino Sans','Yu Gothic',sans-serif;color:#e8eaf0;min-height:100vh;}
@@ -51,6 +52,13 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
 .tabs{display:flex;gap:6px;margin-bottom:14px;}
 .tabs a{flex:1;text-align:center;padding:10px 4px;border-radius:10px;background:#1a1d2a;border:1px solid #2e3250;color:#9ca3af;font-size:13px;font-weight:700;text-decoration:none;}
 .tabs a.on{background:#5b8ef5;border-color:#5b8ef5;color:#fff;}
+.scan-btn{width:100%;padding:18px 0;font-size:17px;background:#5b8ef5;color:#fff;border-radius:14px;margin-top:6px;}
+.scan-wrap{position:fixed;inset:0;background:#000;z-index:60;display:flex;flex-direction:column;}
+.scan-wrap video{flex:1;width:100%;object-fit:cover;min-height:0;}
+.scan-bar{padding:14px 16px 26px;background:#0f1117;text-align:center;}
+.scan-bar .msg{font-size:14px;color:#e8eaf0;margin-bottom:10px;line-height:1.7;}
+.scan-bar button{background:#22263a;color:#e8eaf0;padding:13px 30px;font-size:15px;}
+.scan-frame{position:absolute;left:50%;top:40%;width:62vmin;height:62vmin;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.85);border-radius:18px;pointer-events:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.35);}
 </style>
 </head>
 <body>
@@ -65,7 +73,7 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
       <button class="icon-btn" id="logoutBtn" style="display:none;" onclick="doLogout()" title="ログアウト">🚪</button>
     </div>
   </div>
-  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="">✋ 希望</a><a href="./punch.html" class="on">⏱ 打刻</a><a href="./attendance.html" class="" id="tabAtt" style="display:none">🕒 勤怠管理</a></div>
+  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="">✋ 希望</a><a href="./punch.html#scan" class="on">⏱ 打刻</a><a href="./attendance.html" class="" id="tabAtt" style="display:none">🕒 勤怠管理</a></div>
   <div id="app"><div class="spinner"></div></div>
 </div>
 
@@ -182,6 +190,7 @@ async function afterLogin(session) {
   }
   await loadRows();
   render();
+  if (location.hash === '#scan' && !TOKEN) startScan(); // 「打刻」タブから来たときは、そのままカメラを起動
 }
 
 async function loadRows() {
@@ -220,7 +229,9 @@ function render() {
         <div class="clock">いまの時刻 <span id="nowClock"></span></div>
         <div id="punchMsg"></div>`;
     } else {
-      html += `<div class="note" style="text-align:center;">打刻するには、レジの画面に出ているQRを、<br>スマホのカメラで読み取ってください。</div>`;
+      html += `<button class="scan-btn" onclick="startScan()">📷 QRを読み取って打刻する</button>
+        <div class="note" style="text-align:center;margin-top:10px;">レジの画面に出ているQRを読み取ります。<br>(スマホの標準カメラで読み取っても打刻できます)</div>
+        <div id="scanMsg"></div>`;
     }
     html += `</div>`;
   }
@@ -247,6 +258,55 @@ function render() {
   app.innerHTML = html;
   tickClock();
 }
+
+// ---- 画面内QRスキャナ(スマホの標準カメラを使わなくても読み取れる)----
+let scanStream = null, scanRaf = 0;
+function stopScan() {
+  cancelAnimationFrame(scanRaf);
+  if (scanStream) { scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  const w = document.getElementById('scanWrap'); if (w) w.remove();
+}
+async function startScan() {
+  const msg0 = document.getElementById('scanMsg');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof jsQR !== 'function') {
+    if (msg0) msg0.innerHTML = '<div class="err">この端末ではカメラを起動できません。スマホの標準カメラでQRを読み取ってください。</div>';
+    return;
+  }
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  } catch (e) {
+    if (msg0) msg0.innerHTML = '<div class="err">カメラを使えませんでした。ブラウザのカメラ許可を確認するか、スマホの標準カメラでQRを読み取ってください。</div>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'scan-wrap'; wrap.id = 'scanWrap';
+  wrap.innerHTML = '<video id="scanVideo" playsinline muted></video><div class="scan-frame"></div><div class="scan-bar"><div class="msg" id="scanHint">レジのQRを枠に合わせてください</div><button onclick="stopScan()">キャンセル</button></div>';
+  document.body.appendChild(wrap);
+  const video = document.getElementById('scanVideo');
+  video.srcObject = scanStream; video.setAttribute('playsinline', ''); video.muted = true;
+  try { await video.play(); } catch (e) {}
+  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const tick = () => {
+    if (!scanStream) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      const w = video.videoWidth, h = video.videoHeight, k = Math.min(1, 640 / Math.max(w, h));
+      canvas.width = Math.round(w * k); canvas.height = Math.round(h * k);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        let t = null;
+        try { const u = new URL(code.data); if (/punch\.html$/.test(u.pathname)) t = u.searchParams.get('t'); } catch (e) {}
+        if (t) { TOKEN = t; stopScan(); try { history.replaceState(null, '', location.pathname); } catch (e) {} render(); return; }
+        const hint = document.getElementById('scanHint'); if (hint) hint.textContent = 'このQRは打刻用ではありません。レジのQRを読み取ってください';
+      }
+    }
+    scanRaf = requestAnimationFrame(tick);
+  };
+  scanRaf = requestAnimationFrame(tick);
+}
+
+window.addEventListener('hashchange', () => { if (location.hash === '#scan' && me && me.attendance_enabled && !TOKEN && !scanStream) startScan(); });
 
 let clockTimer = null;
 function tickClock() {

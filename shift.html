@@ -84,7 +84,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const DEFAULT_START = '17:00', DEFAULT_END = '23:00'; // 「出勤にする」を押したときの初期値
 
 let ME = null, staffAll = [], month = null, view = 'shift';
-let shifts = [], reqs = [], loadSeq = 0, editingDate = null, deadlineDay = null, periods = [];
+let shifts = [], reqs = [], loadSeq = 0, editingDate = null, deadlineDay = null, periods = [], rules = [];
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad2 = n => String(n).padStart(2, '0');
@@ -150,7 +150,7 @@ function renderTabs() {
   const t = (id, label) => `<a href="#${id}" class="${view === id ? 'on' : ''}">${label}</a>`;
   document.getElementById('tabs').innerHTML =
     t('shift', '📅 シフト') + t('req', '✋ 希望') +
-    `<a href="./punch.html">⏱ 打刻</a>` + (isAdmin() ? `<a href="./attendance.html">🕒 勤怠管理</a>` : '');
+    `<a href="./punch.html#scan">⏱ 打刻</a>` + (isAdmin() ? `<a href="./attendance.html">🕒 勤怠管理</a>` : '');
 }
 
 async function reloadAll() {
@@ -161,12 +161,14 @@ async function reloadAll() {
     if (e0) throw e0;
     staffAll = st || [];
     const r = monthRange();
-    const [a, b, c, d] = await Promise.all([
+    const [a, b, c, d, e2] = await Promise.all([
       sb.from('shifts').select('*').gte('date', r.first).lte('date', r.last),
       sb.from('shift_requests').select('*').gte('date', r.first).lte('date', r.last),
       sb.from('shift_config').select('request_deadline_day').eq('id', 1).maybeSingle(),
-      sb.from('shift_deadline_periods').select('*').lte('period_start', r.last).gte('period_end', r.first)
+      sb.from('shift_deadline_periods').select('*').lte('period_start', r.last).gte('period_end', r.first),
+      sb.from('shift_deadline_rules').select('*')
     ]);
+    rules = (e2 && e2.data ? e2.data : []).slice().sort((x, y) => y.id - x.id); // 重なる場合は後から作ったものを優先
     deadlineDay = c.data ? c.data.request_deadline_day : null;
     periods = (d.data || []).slice().sort((x, y) => y.id - x.id); // 重なる場合は後から作ったものを優先
     if (a.error) throw a.error; if (b.error) throw b.error;
@@ -277,6 +279,13 @@ async function saveDay() {
 function deadlineFor(d) {
   const p = periods.find(x => d >= x.period_start && d <= x.period_end);
   if (p) return p.deadline;
+  const [y0, m0, dd0] = d.split('-').map(Number);
+  const r = rules.find(x => dd0 >= x.day_from && dd0 <= x.day_to);
+  if (r) { // 毎月のルール:「前月/当月の◯日」(月末を超える日付は末日に丸める)
+    let yy = y0, mm = m0 + r.month_offset; if (mm < 1) { mm = 12; yy--; }
+    const last = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    return `${yy}-${pad2(mm)}-${pad2(Math.min(r.deadline_day, last))}`;
+  }
   if (!deadlineDay) return null;
   const [y, m] = d.split('-').map(Number), py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
   return `${py}-${pad2(pm)}-${pad2(deadlineDay)}`;

@@ -231,16 +231,18 @@
       </div>
     </div>
     <div class="section-title">シフト希望の締切</div>
-    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">スタッフがシフト希望を出せるのは、対象月の「前月◯日」までです(例:20 → 11月分は10月20日まで)。締切を過ぎると、スタッフは希望の追加・変更ができなくなります(店主・店長がシフトを入力するのは締切後もできます)。空欄にすると締切なしです。</div>
-    <div class="master-add">
-      <span style="font-size:13px;">前月</span>
-      <input type="number" id="shiftDeadlineDay" min="1" max="28" placeholder="空欄=締切なし" style="max-width:130px;">
-      <span style="font-size:13px;">日まで</span>
-      <button class="btn btn-primary btn-sm" onclick="saveShiftDeadline()">保存</button>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">スタッフがシフト希望を出せる期限です。「何日分のシフトか」ごとに、「前月/当月の◯日まで」を決めます。毎月くり返し適用されます。締切を過ぎると、スタッフは希望の追加・変更ができなくなります(店主・店長がシフトを入力するのは締切後もできます)。登録がなければ締切なしです。<br>例:1〜15日分 → 前月20日まで / 16〜31日分 → 当月5日まで(月の長さを超える日付は、その月の末日になります)</div>
+    <div id="shiftRuleArea"></div>
+    <div class="master-add" style="flex-wrap:wrap;">
+      <input type="number" id="srFrom" min="1" max="31" placeholder="1" style="max-width:64px;"><span style="font-size:13px;">〜</span>
+      <input type="number" id="srTo" min="1" max="31" placeholder="15" style="max-width:64px;"><span style="font-size:13px;">日分 →</span>
+      <select id="srOffset"><option value="-1">前月</option><option value="0">当月</option></select>
+      <input type="number" id="srDay" min="1" max="31" placeholder="20" style="max-width:64px;"><span style="font-size:13px;">日まで</span>
+      <button class="btn btn-primary btn-sm" onclick="addShiftRule()">追加</button>
     </div>
-    <div id="shiftDeadlineMsg" style="font-size:11px;color:var(--ink-soft);margin:6px 0 22px;"></div>
+    <div style="height:22px;"></div>
     <div class="section-title" style="font-size:13px;">期間ごとの締切(任意)</div>
-    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">「半月ごとに集める」など、特定の期間だけ別の締切にしたいときに追加します。その期間に含まれる日は、上の設定より、ここの締切が優先されます。例:11/1〜11/15分は10/25まで、11/16〜11/30分は11/8まで。</div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">「半月ごとに集める」など、特定の期間だけ別の締切にしたいときに追加します。その期間に含まれる日は、上の毎月のルールより、ここの締切が優先されます(毎月のルールを変えずに、その月だけ変えたいときに使います)。例:11/1〜11/15分は10/25まで、11/16〜11/30分は11/8まで。</div>
     <div id="shiftPeriodArea"></div>
     <div class="master-add" style="flex-wrap:wrap;">
       <input type="date" id="spStart" title="対象期間の開始"><span style="font-size:13px;">〜</span>
@@ -736,20 +738,31 @@ async function deleteShiftPeriod(id){
   if(error){ toast('削除に失敗しました: '+error.message); return; }
   toast('削除しました'); loadShiftPeriods();
 }
-async function loadShiftDeadline(){
-  const el = document.getElementById('shiftDeadlineDay'); if(!el) return;
-  const { data, error } = await sb.from('shift_config').select('request_deadline_day').eq('id',1).maybeSingle();
-  if(error){ document.getElementById('shiftDeadlineMsg').textContent = '読み込みに失敗しました: '+error.message; return; }
-  el.value = data && data.request_deadline_day ? data.request_deadline_day : '';
-  document.getElementById('shiftDeadlineMsg').textContent = el.value ? `現在の設定: 対象月の前月${el.value}日まで` : '現在の設定: 締切なし';
+async function loadShiftRules(){
+  const area = document.getElementById('shiftRuleArea'); if(!area) return;
+  const { data, error } = await sb.from('shift_deadline_rules').select('*').order('day_from', {ascending:true});
+  if(error){ area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(error.message)}</div>`; return; }
+  area.innerHTML = (data||[]).length ? data.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px;">
+      <div style="flex:1;">${r.day_from}〜${r.day_to}日分 → ${r.month_offset===-1?'前月':'当月'} <b>${r.deadline_day}日</b>まで</div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteShiftRule(${r.id})">削除</button></div>`).join('')
+    : '<div style="font-size:12px;color:var(--ink-soft);padding:4px 0;">登録なし(締切なし)</div>';
 }
-async function saveShiftDeadline(){
-  const raw = document.getElementById('shiftDeadlineDay').value.trim();
-  const day = raw==='' ? null : Number(raw);
-  if(day!==null && (!Number.isInteger(day) || day<1 || day>28)){ toast('1〜28の数字を入れてください(締切なしは空欄)'); return; }
-  const { error } = await sb.from('shift_config').upsert({ id:1, request_deadline_day: day, updated_at: new Date().toISOString() }, { onConflict:'id' });
-  if(error){ toast('保存に失敗しました: '+error.message); return; }
-  toast('保存しました'); loadShiftDeadline();
+async function addShiftRule(){
+  const f = Number(document.getElementById('srFrom').value), t = Number(document.getElementById('srTo').value);
+  const off = Number(document.getElementById('srOffset').value), d = Number(document.getElementById('srDay').value);
+  const ok = n => Number.isInteger(n) && n>=1 && n<=31;
+  if(!ok(f)||!ok(t)||!ok(d)){ toast('日にちは1〜31の数字で入れてください'); return; }
+  if(f>t){ toast('「◯日分」の開始が終了より後になっています'); return; }
+  const { error } = await sb.from('shift_deadline_rules').insert({ day_from:f, day_to:t, month_offset:off, deadline_day:d });
+  if(error){ toast('追加に失敗しました: '+error.message); return; }
+  ['srFrom','srTo','srDay'].forEach(id=>document.getElementById(id).value='');
+  toast('追加しました'); loadShiftRules();
+}
+async function deleteShiftRule(id){
+  if(!confirm('この締切ルールを削除します。よろしいですか?')) return;
+  const { error } = await sb.from('shift_deadline_rules').delete().eq('id', id);
+  if(error){ toast('削除に失敗しました: '+error.message); return; }
+  toast('削除しました'); loadShiftRules();
 }
 async function loadMasters(){
   try{
@@ -763,7 +776,7 @@ async function loadMasters(){
     if(t.error) throw t.error;
     vendors = v.data||[]; staffList = s.data||[]; taxRates = t.data||[];
     renderVendors(); renderStaff(); renderTaxRates();
-    loadShiftDeadline(); loadShiftPeriods();
+    loadShiftRules(); loadShiftPeriods();
   }catch(e){
     document.getElementById('vendorArea').innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
   }
