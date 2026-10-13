@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>出退勤の打刻</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0f1117;font-family:'Helvetica Neue',Arial,'Hiragino Sans','Yu Gothic',sans-serif;color:#e8eaf0;min-height:100vh;}
+input,button{font-family:inherit;font-size:14px;}
+button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-action:manipulation;}
+.wrap{max-width:480px;margin:0 auto;padding:20px 16px 60px;}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;}
+.header h1{font-size:18px;font-weight:800;}
+.header .sub{color:#9ca3af;font-size:11px;margin-top:2px;}
+.icon-btn{background:none;color:#9ca3af;font-size:18px;padding:6px 8px;text-decoration:none;}
+.card{background:#1a1d2a;border:1px solid #2e3250;border-radius:14px;padding:18px;margin-bottom:14px;}
+.field{margin-bottom:12px;}
+.field label{display:block;color:#9ca3af;font-size:11px;margin-bottom:4px;}
+.field input{width:100%;padding:10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;}
+.btn-main{width:100%;padding:14px;background:#5b8ef5;color:#fff;font-size:15px;margin-top:6px;}
+.btn-main:disabled{opacity:.5;}
+.punch-btn{width:100%;padding:26px 0;font-size:24px;border-radius:16px;color:#fff;}
+.punch-btn.in{background:#2f9e68;}
+.punch-btn.out{background:#d9534f;}
+.punch-btn:disabled{opacity:.5;}
+.err{color:#e05252;font-size:13px;margin-top:10px;line-height:1.7;}
+.ok{color:#4caf80;font-size:13px;margin-top:10px;line-height:1.7;}
+.note{color:#9ca3af;font-size:12px;line-height:1.8;}
+.status{text-align:center;padding:6px 0 14px;}
+.status .label{color:#9ca3af;font-size:12px;}
+.status .big{font-size:26px;font-weight:800;margin-top:4px;}
+.status .big.working{color:#4caf80;}
+.status .since{color:#9ca3af;font-size:13px;margin-top:4px;}
+.clock{text-align:center;color:#9ca3af;font-size:12px;margin-bottom:12px;}
+.done{text-align:center;padding:10px 0;}
+.done .mark{font-size:44px;}
+.done .t{font-size:20px;font-weight:800;margin-top:6px;}
+.sum{display:flex;justify-content:space-between;font-size:13px;color:#9ca3af;margin-bottom:10px;}
+.sum b{color:#e8eaf0;}
+.row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #2e3250;font-size:14px;}
+.row:first-child{border-top:none;}
+.row .d{width:64px;color:#9ca3af;font-size:13px;}
+.row .t{flex:1;font-variant-numeric:tabular-nums;}
+.row .h{color:#9ca3af;font-size:12px;white-space:nowrap;}
+.tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:6px;background:#2e3250;color:#9ca3af;margin-left:4px;}
+.tag.warn{background:#4a2020;color:#f08080;}
+.spinner{width:28px;height:28px;border:3px solid #2e3250;border-top-color:#5b8ef5;border-radius:50%;margin:60px auto;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <h1>出退勤の打刻</h1>
+      <div class="sub" id="who"></div>
+    </div>
+    <div>
+      <a class="icon-btn" href="./home.html" title="ホームへ">🏠</a>
+      <button class="icon-btn" id="logoutBtn" style="display:none;" onclick="doLogout()" title="ログアウト">🚪</button>
+    </div>
+  </div>
+  <div id="app"><div class="spinner"></div></div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // ログイン状態は端末に保存され、続けて使える
+const STALE_OPEN_HOURS = 18; // DB側(punch関数)と同じ。これより古い「退勤なし」は押し忘れ扱い
+
+// レジのQRに載っている使い捨てトークン。読み込んだらURLから消す(履歴やホーム画面追加にトークンを残さない)
+let TOKEN = new URLSearchParams(location.search).get('t');
+if (TOKEN) { try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+
+let me = null;        // 自分のstaff行
+let rows = [];        // 自分の直近の勤務記録
+let justDone = null;  // 打刻が成功した直後の表示
+let pending = false;
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---- 時刻(日本時間。営業日は7:00〜翌6:59。深夜は 25:00 のように表示)----
+const JST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+function jstParts(ts) {
+  const p = {};
+  JST.formatToParts(new Date(ts)).forEach(x => { p[x.type] = x.value; });
+  return { date: `${p.year}-${p.month}-${p.day}`, h: +p.hour, m: +p.minute };
+}
+function dayDiff(a, b) {
+  const [ay, am, ad] = a.split('-').map(Number), [by, bm, bd] = b.split('-').map(Number);
+  return Math.round((Date.UTC(ay, am - 1, ad) - Date.UTC(by, bm - 1, bd)) / 86400000);
+}
+function bizTime(ts, bizDate) {
+  const p = jstParts(ts);
+  return `${p.h + 24 * dayDiff(p.date, bizDate)}:${String(p.m).padStart(2, '0')}`;
+}
+function clockTime(ts) { const p = jstParts(ts); return `${p.h}:${String(p.m).padStart(2, '0')}`; }
+function dateLabel(bizDate) {
+  const [y, m, d] = bizDate.split('-').map(Number);
+  return `${m}/${d}(${'日月火水木金土'[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+}
+function durText(ms) {
+  const min = Math.max(0, Math.round(ms / 60000));
+  return `${Math.floor(min / 60)}時間${String(min % 60).padStart(2, '0')}分`;
+}
+function currentBizMonth() {
+  const p = jstParts(Date.now() - 7 * 3600 * 1000);
+  return p.date.slice(0, 7);
+}
+
+// ---- 起動・ログイン ----
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { renderLogin(); return; }
+  await afterLogin(session);
+}
+sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; renderLogin(); } });
+
+function renderLogin() {
+  document.getElementById('logoutBtn').style.display = 'none';
+  document.getElementById('who').textContent = '';
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      ${TOKEN ? '<div class="note" style="margin-bottom:12px;">ログインすると、そのまま打刻できます。<br>(QRの有効期限は約1分です。切れたらもう一度QRを読み取ってください)</div>'
+              : '<div class="note" style="margin-bottom:12px;">ログインしてください。一度ログインすれば、次からは自動でログインされます。</div>'}
+      <div class="field"><label>メールアドレス</label><input type="email" id="li-email" autocomplete="username"></div>
+      <div class="field"><label>パスワード</label><input type="password" id="li-password" autocomplete="current-password"></div>
+      <div id="li-msg"></div>
+      <button class="btn-main" id="li-btn">ログイン</button>
+    </div>`;
+  document.getElementById('li-btn').onclick = doLogin;
+  document.getElementById('li-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+}
+async function doLogin() {
+  const email = document.getElementById('li-email').value.trim();
+  const password = document.getElementById('li-password').value;
+  const msg = document.getElementById('li-msg');
+  msg.innerHTML = '';
+  if (!email || !password) { msg.innerHTML = '<div class="err">メールアドレスとパスワードを入力してください</div>'; return; }
+  const btn = document.getElementById('li-btn');
+  btn.disabled = true; btn.textContent = 'ログイン中...';
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    await afterLogin(data.session);
+  } catch (e) {
+    msg.innerHTML = `<div class="err">ログインに失敗しました: ${esc(e.message || String(e))}</div>`;
+    btn.disabled = false; btn.textContent = 'ログイン';
+  }
+}
+async function doLogout() { await sb.auth.signOut(); }
+
+async function afterLogin(session) {
+  document.getElementById('logoutBtn').style.display = 'inline-block';
+  document.getElementById('app').innerHTML = '<div class="spinner"></div>';
+  try {
+    const { data, error } = await sb.from('staff').select('id,name,role,active,attendance_enabled')
+      .eq('auth_user_id', session.user.id).maybeSingle();
+    if (error) throw error;
+    me = data;
+  } catch (e) {
+    document.getElementById('app').innerHTML = `<div class="card"><div class="err">読み込みに失敗しました: ${esc(e.message || String(e))}</div></div>`;
+    return;
+  }
+  if (!me) {
+    document.getElementById('app').innerHTML = `<div class="card"><div class="note">このアカウントはまだ従業員として登録されていません。店主に連絡してください。<br>(ログイン中: ${esc(session.user.email)})</div></div>`;
+    return;
+  }
+  document.getElementById('who').textContent = me.name || '';
+  if (!me.active || !me.attendance_enabled) {
+    document.getElementById('app').innerHTML = `<div class="card"><div class="note">このアカウントは、まだ打刻の対象に設定されていません。店主に設定を依頼してください。</div></div>`;
+    return;
+  }
+  await loadRows();
+  render();
+}
+
+async function loadRows() {
+  const { data, error } = await sb.from('attendance').select('id,business_date,clock_in,clock_out,source,edited')
+    .eq('staff_id', me.id).order('clock_in', { ascending: false }).limit(60);
+  if (error) throw error;
+  rows = data || [];
+}
+
+function openSession() {
+  const limit = Date.now() - STALE_OPEN_HOURS * 3600 * 1000;
+  return rows.find(r => !r.clock_out && new Date(r.clock_in).getTime() > limit) || null;
+}
+
+function render() {
+  const app = document.getElementById('app');
+  const open = openSession();
+  let html = '';
+
+  if (justDone) {
+    html += `<div class="card"><div class="done">
+      <div class="mark">${justDone.kind === 'in' ? '✅' : '👋'}</div>
+      <div class="t">${justDone.kind === 'in' ? '出勤しました' : '退勤しました'}</div>
+      <div class="note" style="margin-top:6px;">${esc(justDone.time)}${justDone.kind === 'out' ? '(' + esc(justDone.dur) + ')' : ''}</div>
+    </div></div>`;
+  } else {
+    html += `<div class="card">
+      <div class="status">
+        <div class="label">現在の状態</div>
+        <div class="big ${open ? 'working' : ''}">${open ? '勤務中' : '勤務外'}</div>
+        ${open ? `<div class="since">${esc(bizTime(open.clock_in, open.business_date))} から</div>` : ''}
+      </div>`;
+    if (TOKEN) {
+      const kind = open ? 'out' : 'in';
+      html += `<button class="punch-btn ${kind}" id="punchBtn" onclick="doPunch('${kind}')">${kind === 'in' ? '出勤する' : '退勤する'}</button>
+        <div class="clock">いまの時刻 <span id="nowClock"></span></div>
+        <div id="punchMsg"></div>`;
+    } else {
+      html += `<div class="note" style="text-align:center;">打刻するには、レジの画面に出ているQRを、<br>スマホのカメラで読み取ってください。</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // 自分の記録
+  const month = currentBizMonth();
+  const monthRows = rows.filter(r => r.business_date.slice(0, 7) === month && r.clock_out);
+  const monthMs = monthRows.reduce((n, r) => n + (new Date(r.clock_out) - new Date(r.clock_in)), 0);
+  html += `<div class="card">
+    <div class="sum"><span>今月の勤務時間</span><b>${esc(durText(monthMs))}</b></div>
+    <div class="sum"><span>今月の出勤日数</span><b>${new Set(monthRows.map(r => r.business_date)).size}日</b></div>
+    ${rows.length === 0 ? '<div class="note">まだ記録がありません</div>' : rows.slice(0, 20).map(r => {
+      const stale = !r.clock_out && !(openSession() && openSession().id === r.id);
+      return `<div class="row">
+        <div class="d">${esc(dateLabel(r.business_date))}</div>
+        <div class="t">${esc(bizTime(r.clock_in, r.business_date))} 〜 ${r.clock_out ? esc(bizTime(r.clock_out, r.business_date)) : (stale ? '<span class="tag warn">退勤の記録なし</span>' : '勤務中')}
+          ${r.source === 'manual' ? '<span class="tag">手入力</span>' : ''}${r.edited ? '<span class="tag">修正済み</span>' : ''}</div>
+        <div class="h">${r.clock_out ? esc(durText(new Date(r.clock_out) - new Date(r.clock_in))) : ''}</div>
+      </div>`;
+    }).join('')}
+    <div class="note" style="margin-top:12px;">記録が違うときは、店主に連絡して訂正してもらってください。</div>
+  </div>`;
+
+  app.innerHTML = html;
+  tickClock();
+}
+
+let clockTimer = null;
+function tickClock() {
+  clearInterval(clockTimer);
+  const el = document.getElementById('nowClock');
+  if (!el) return;
+  const f = () => { const e = document.getElementById('nowClock'); if (e) e.textContent = clockTime(Date.now()); };
+  f();
+  clockTimer = setInterval(f, 15000);
+}
+
+const ERR_TEXT = {
+  token_expired: 'QRの有効期限が切れました。もう一度、レジの画面のQRを読み取ってください。',
+  token_invalid: 'このQRは使えません。レジの画面に出ているQRを、もう一度読み取ってください。',
+  not_authenticated: 'ログインが切れています。ログインしてから、もう一度QRを読み取ってください。',
+  not_enabled: 'このアカウントは、まだ打刻の対象に設定されていません。店主に連絡してください。',
+  already_in: 'すでに出勤の打刻がされています。',
+  not_in: '出勤の記録が見つかりません(18時間以内に出勤の打刻がありません)。店主に連絡して訂正してもらってください。',
+  bad_request: '打刻に失敗しました。もう一度お試しください。',
+};
+
+async function doPunch(kind) {
+  if (pending) return;
+  pending = true;
+  const btn = document.getElementById('punchBtn');
+  const msg = document.getElementById('punchMsg');
+  if (btn) btn.disabled = true;
+  if (msg) msg.innerHTML = '';
+  try {
+    const { data, error } = await sb.rpc('punch', { p_token: TOKEN, p_kind: kind });
+    if (error) throw error;
+    if (!data || !data.ok) {
+      const code = data && data.code;
+      if (code === 'token_expired' || code === 'token_invalid') TOKEN = null; // 使えないトークンは捨てる
+      await loadRows().catch(() => {});
+      render(); // 最新の状態(勤務中/勤務外)でボタンを出し直す
+      const t = ERR_TEXT[code] || '打刻に失敗しました。もう一度お試しください。';
+      document.getElementById('app').insertAdjacentHTML('afterbegin', `<div class="card"><div class="err" style="margin-top:0;">${esc(t)}</div></div>`);
+      return;
+    }
+    TOKEN = null;
+    await loadRows().catch(() => {});
+    justDone = {
+      kind: data.kind,
+      time: bizTime(data.at, data.business_date),
+      dur: data.kind === 'out' ? durText(new Date(data.at) - new Date(data.clock_in)) : '',
+    };
+    render();
+  } catch (e) {
+    if (btn) btn.disabled = false;
+    if (msg) msg.innerHTML = `<div class="err">通信に失敗しました。電波を確認して、もう一度押してください。<br><span class="note">${esc(e.message || String(e))}</span></div>`;
+  } finally {
+    pending = false;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

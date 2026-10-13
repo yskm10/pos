@@ -51,6 +51,9 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 | `checklist_audits` | 有効(店主のみ) | 店主の「月次確認」の記録(できてなかった回数。下記「チェックリスト」参照)。ポリシーは`is_owner()`のみ・authenticated限定で、anonは読み書き不可 |
 | `quotes` | 有効 | 見積書データ(番号・日付・顧客・件名・ステータス・税込合計・`data`jsonb) |
 | `quote_config` | 有効 | 見積関連の設定(key/value jsonb) |
+| `attendance` | 有効 | 勤怠(出勤・退勤時刻)。`staff_id`,`business_date`,`clock_in`,`clock_out`,`source`(qr/manual),`edited`,`note`。閲覧=店主・店長は全員分/本人は自分の分のみ、追加・修正・削除=店主・店長のみ(`is_attendance_admin()`) |
+| `attendance_history` | 有効(店主のみ閲覧) | `attendance`の修正・削除履歴(`old_row`jsonb,`changed_by`,`changed_at`)。トリガーで自動記録 |
+| `punch_secret` | 有効(ポリシーなし) | QR署名用の秘密鍵(1行)。anon/authenticatedから参照不可、SECURITY DEFINER関数のみ使用 |
 
 ## チェックリスト(checklist.html)補足
 
@@ -81,6 +84,24 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
   - 経緯: ①その月の実施率を見る「項目別」ビュー → ②抜き打ち確認+要注意ランキング → ③現在の月次確認。入力率やチェック済みの項目だけでは「嘘チェック」が分からないため、全項目に回数ボタンを付ける形になった。
 - 店主がログインしていない場合、ページ下部の「店主の方はこちらからログイン」リンクでhome.htmlへ移動する。
 
+## 勤怠管理(2026-10-13追加)
+
+**流れ**: レジのiPad(pos.html)に回転QRを表示 → スタッフが自分のスマホのカメラで読み取る → punch.htmlが開き(ログイン済みなら)ボタン1つで出勤/退勤を打刻。
+
+- **ファイル**: `punch.html`(スタッフのスマホ用・自分の勤務記録も見える)、`attendance.html`(店主・店長用:月別一覧・訂正・追加・削除)、`pos.html`(ヘッダーの「📲 打刻QR」ボタン)、`home.html`(タイル追加)
+- **QRの仕組み**: サーバー側で30秒ごとに切り替わるトークン(`<窓番号>.<HMAC-SHA256先頭20桁>`)。`get_punch_token()`が発行、`punch(p_token,p_kind)`が検証。有効期間は約60〜90秒。QR内URL=`https://yskm10.github.io/pos/punch.html?t=トークン`(読み取り後はURLからトークンを消す)
+- **QRを出せる人**: role=owner、または`staff.punch_display=true`の端末アカウント。ただし`attendance_enabled=true`の人は不可(自宅から自分のQRで打刻するのを防ぐ)。両フラグ同時trueはCHECK制約で禁止
+- **打刻できる人**: `staff.attendance_enabled=true`でログイン済みの人のみ。設定は attendance.html の「設定」カード(店主のみ)
+- **打刻のエラー**: token_expired / token_invalid / not_authenticated / not_enabled / already_in(出勤済み) / not_in(出勤中でない) / bad_request
+- **営業日**: 7:00〜翌6:59。手入力で0:00〜6:59の時刻は翌暦日として扱い、画面では25:00のように表示。`business_date`は`clock_in`の7時間前(JST)の日付
+- **退勤忘れ**: 出勤から18時間超の未退勤は「退勤忘れ」とみなし、次の出勤を妨げない(退勤は18時間以内の未退勤のみ閉じる)。画面では「退勤の記録なし」と表示、行をタップして退勤時刻を入力
+- **訂正**: attendance.html の行をタップ→日付・出勤・退勤・メモを修正(退勤を空欄にすると退勤なし)。手入力追加は`source='manual'`、修正した行は`edited=true`(「修正済み」表示)
+- **履歴**: 修正・削除は`attendance_history`に自動記録(QRでの退勤打刻は除く)。履歴・削除済み記録の閲覧は店主のみ
+- **ログイン維持**: Supabase Authのセッション保存。iPhoneはカメラ読取でSafariが開くため、ホーム画面アプリとは別のログイン。Safariはサイトを約1週間使わないと保存データを消すことがあり、その場合のみ再ログインが必要
+- **限界**: QRを写真で共有されると遠隔打刻できてしまう(抑止策であり不正の証明ではない)
+- **未対応**: 松田 未美(staff id 10)はログインアカウント未作成・role未設定。id 8「スタッフ」は共用アカウントのため個別打刻には使えない
+- **動作確認**: UI(punch/attendance/pos QR表示・アカウント別の表示可否)はPlaywrightで確認済み。DB側はRLS有効・anon権限なし・関数権限を確認。トリガー(営業日算出・履歴記録)・トークン期限の実DB通しテストは未実施
+
 ## 経営ダッシュボード(keiei-dashboard.html)補足
 
 - 経費科目は「地代家賃」(旧「家賃」から改名。集計側は新旧どちらの表記でも家賃として拾うようにしてある)
@@ -93,9 +114,9 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 
 | role | 呼称 | home.htmlで見えるタイル | pos.htmlでの制限 |
 |---|---|---|---|
-| owner | 店主 | レジ・レジ用POS・チェックリスト・経費帳・経営ダッシュボード | 全機能。売上タブも見える |
-| manager | 店長 | レジ・レジ用POS・チェックリスト・経費帳 | 売上タブは非表示(店長が近隣に売上を話してしまう懸念があったため) |
-| staff | 一般スタッフ | レジ用POS・チェックリスト | 売上タブは非表示 |
+| owner | 店主 | レジ・レジ用POS・チェックリスト・経費帳・出退勤の打刻・勤怠管理・経営ダッシュボード | 全機能。売上タブも見える |
+| manager | 店長 | レジ・レジ用POS・チェックリスト・経費帳・出退勤の打刻・勤怠管理 | 売上タブは非表示(店長が近隣に売上を話してしまう懸念があったため) |
+| staff | 一般スタッフ | レジ用POS・チェックリスト・出退勤の打刻 | 売上タブは非表示 |
 | accounting | 経理 | レジ(売上専用)・経費帳 | ログインすると「売上」タブしか出ない。他の操作(注文/メニュー編集等)は不可。税理士など外部の人に渡す用途を想定 |
 
 ホーム画面のタイルは home.html の `APPS` 配列の `roles` で出し分けている。経営ダッシュボード(keiei-dashboard.html)のタイルは owner のみ(2026-10-13追加)。

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>POSシステム</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -299,6 +300,8 @@ let SKEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
 const sb = supabase.createClient(SURL, SKEY);
 let CURRENT_ROLE = null; // ログイン中のスタッフの役割(owner/manager/staff/accounting)
 let ACCESS_TOKEN = null; // ログイン中ユーザーのアクセストークン(RLS用)
+let PUNCH_QR_ALLOWED = false; // 「打刻QR」ボタンを出してよいアカウントか
+const PUNCH_PAGE_URL = "https://yskm10.github.io/pos/punch.html"; // スタッフのスマホで開く打刻ページ(QRに載せる)
 const VIEWONLY_PASSCODE = "mimi2026"; // ?viewonly=1 の閲覧専用リンク用の合言葉
 
 function sfetch(table, opts={}){
@@ -507,10 +510,13 @@ function doPosLogout(){
 async function afterPosLogin(session){
   ACCESS_TOKEN = session.access_token;
   try{ await sb.rpc('link_my_staff_account'); }catch(e){ console.error(e); }
+  PUNCH_QR_ALLOWED = false;
   try{
-    const { data, error } = await sb.from('staff').select('role').eq('auth_user_id', session.user.id).maybeSingle();
+    const { data, error } = await sb.from('staff').select('role,punch_display,attendance_enabled').eq('auth_user_id', session.user.id).maybeSingle();
     if(error) throw error;
     CURRENT_ROLE = data ? data.role : null;
+    // 打刻QRを出せるのは、店主かQR表示端末に設定されたアカウント。打刻の対象者は出せない(自宅で自分のQRを出して打刻する不正の防止。サーバー側でも同じ判定)
+    PUNCH_QR_ALLOWED = !!data && !data.attendance_enabled && (data.role==='owner' || !!data.punch_display) && data.role!=='accounting';
   }catch(e){ console.error(e); CURRENT_ROLE = null; }
 
   if(!CURRENT_ROLE || !['owner','manager','staff','accounting'].includes(CURRENT_ROLE)){
@@ -2327,6 +2333,77 @@ async function saveShop(){
 }
 
 // ═══════════════════════════════════════════
+// 打刻QR(スタッフの出退勤)
+//  ・30秒ごとに中身が変わるQRを表示する。スタッフが自分のスマホで読み取ると punch.html が開き、
+//    サーバー(Supabaseのpunch関数)がトークンの有効期限(最大約90秒)を確認して、サーバーの時刻で記録する。
+//  ・トークンの生成・検証はサーバー側。このページにはQRを作る材料(トークン)しか渡らない。
+// ═══════════════════════════════════════════
+let _pqOpen = false, _pqTimer = null, _pqTick = null, _pqExpiresAt = 0;
+function openPunchQr(){
+  if(_pqOpen || !PUNCH_QR_ALLOWED) return;
+  _pqOpen = true;
+  const ov = document.createElement('div');
+  ov.id = 'punch-qr-overlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.78);z-index:9997;display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.innerHTML = `
+    <div style="background:#1a1d27;border:1px solid #2e3250;border-radius:18px;padding:24px 26px;max-width:420px;width:100%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+      <div style="color:#e8eaf0;font-size:18px;font-weight:800;margin-bottom:6px;">📲 出退勤の打刻</div>
+      <div style="color:#9ca3af;font-size:13px;line-height:1.7;margin-bottom:14px;">スマホのカメラでQRを読み取って、<br>出勤・退勤を打刻してください</div>
+      <div id="pq-box" style="background:#fff;border-radius:12px;padding:14px;width:min(70vw,300px);height:min(70vw,300px);margin:0 auto;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:13px;">読み込み中…</div>
+      <div style="height:6px;background:#22263a;border-radius:3px;margin:14px auto 6px;max-width:300px;overflow:hidden;"><div id="pq-bar" style="height:100%;width:0;background:#5b8ef5;"></div></div>
+      <div id="pq-msg" style="color:#9ca3af;font-size:12px;min-height:18px;">QRは30秒ごとに自動で切り替わります</div>
+      <button onclick="closePunchQr()" style="margin-top:16px;width:100%;padding:12px 0;background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#9ca3af;font-weight:700;font-size:14px;cursor:pointer;">閉じる</button>
+    </div>`;
+  ov.onclick = e=>{ if(e.target===ov) closePunchQr(); };
+  document.body.appendChild(ov);
+  _pqTick = setInterval(()=>{
+    const bar = document.getElementById('pq-bar'); if(!bar || !_pqExpiresAt) return;
+    const left = Math.max(0, _pqExpiresAt - Date.now());
+    bar.style.width = Math.min(100, left/30000*100) + '%';
+  }, 250);
+  refreshPunchQr();
+}
+function closePunchQr(){
+  _pqOpen = false;
+  clearTimeout(_pqTimer); clearInterval(_pqTick); _pqTimer = null; _pqTick = null; _pqExpiresAt = 0;
+  const ov = document.getElementById('punch-qr-overlay'); if(ov) ov.remove();
+}
+async function refreshPunchQr(){
+  if(!_pqOpen) return;
+  const box = document.getElementById('pq-box'), msg = document.getElementById('pq-msg');
+  try{
+    const { data, error } = await sb.rpc('get_punch_token');
+    if(error) throw error;
+    if(!_pqOpen) return;
+    if(!data || !data.ok){
+      _pqExpiresAt = 0;
+      box.textContent = '表示できません';
+      msg.style.color = '#e05252';
+      msg.textContent = (data && data.code==='not_authenticated')
+        ? 'ログインが切れています。ログインし直してください。'
+        : 'このアカウントではQRを表示できません(打刻の対象者、または表示の権限がないアカウントです)。';
+      return;
+    }
+    if(typeof qrcode === 'undefined') throw new Error('QRの部品を読み込めませんでした。画面を更新してください');
+    const qr = qrcode(0, 'M');
+    qr.addData(PUNCH_PAGE_URL + '?t=' + encodeURIComponent(data.token));
+    qr.make();
+    box.innerHTML = qr.createSvgTag({cellSize: 4, margin: 0, scalable: true}).replace('<svg ', '<svg style="width:100%;height:100%;display:block;" ');
+    msg.style.color = '#9ca3af';
+    msg.textContent = 'QRは30秒ごとに自動で切り替わります';
+    _pqExpiresAt = Date.now() + data.expires_in*1000;
+    clearTimeout(_pqTimer);
+    _pqTimer = setTimeout(refreshPunchQr, Math.max(1500, data.expires_in*1000)); // 切り替わる瞬間に取り直す
+  }catch(e){
+    console.error(e);
+    msg.style.color = '#e05252';
+    msg.textContent = '通信に失敗しました。再接続しています…';
+    clearTimeout(_pqTimer);
+    _pqTimer = setTimeout(refreshPunchQr, 4000);
+  }
+}
+
+// ═══════════════════════════════════════════
 // メインrender
 // ═══════════════════════════════════════════
 function render(){
@@ -2388,6 +2465,7 @@ function render(){
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
       ${badge('使用中 '+activeInUse,'#5b8ef5')}
       ${waitingChk>0?badge('会計待ち '+waitingChk,'#f5a623'):''}
+      ${(!STATE.viewOnly && PUNCH_QR_ALLOWED)?`<button onclick="openPunchQr()" style="background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#e8eaf0;font-size:12px;font-weight:700;padding:6px 10px;" title="スタッフの出退勤の打刻用QRを表示">📲 打刻QR</button>`:''}
       <button onclick="location.reload()" style="background:none;border:none;color:#9ca3af;font-size:16px;padding:4px 6px;" title="更新">🔄</button>
       ${!STATE.viewOnly?`<button onclick="doPosLogout()" style="background:none;border:none;color:#9ca3af;font-size:16px;padding:4px 6px;" title="ログアウト">🚪</button>`:''}
     </div>
@@ -2461,7 +2539,7 @@ window.addEventListener('load',async()=>{
   sb.auth.onAuthStateChange((event, session)=>{
     if(event==='SIGNED_OUT'){
       stopRealtime();
-      ACCESS_TOKEN=null; CURRENT_ROLE=null;
+      ACCESS_TOKEN=null; CURRENT_ROLE=null; PUNCH_QR_ALLOWED=false; closePunchQr();
       STATE.view='login'; window._cashState=null; window._menuState=null; window._tsState=null;
       render();
     } else if((event==='TOKEN_REFRESHED'||event==='SIGNED_IN') && session){
