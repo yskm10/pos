@@ -921,6 +921,32 @@ async function deleteStaff(id){
     await loadMasters();
   }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
 }
+const HOME_URL = 'https://yskm10.github.io/pos/home.html';
+function buildLineText(name, email, pw, isReset){
+  return `【お料理みみ 業務アプリ】\n${name}さん${isReset?'の新しいパスワードです。':'のログイン情報です。'}\n\nURL\n${HOME_URL}\n\nID(メールアドレス)\n${email}\n\nパスワード\n${pw}\n\n※ログイン後、画面右上の🔑ボタンから、ご自分のパスワードに変更してください。`;
+}
+function showCredModal(name, email, pw, isReset){
+  const text = buildLineText(name, email, pw, isReset);
+  let m = document.getElementById('credModal'); if(m) m.remove();
+  m = document.createElement('div'); m.id='credModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `<div style="background:var(--white,#fff);max-width:420px;width:100%;border-radius:6px;padding:16px;">
+    <div style="font-weight:700;margin-bottom:8px;">${isReset?'パスワードを再発行しました':'アカウントを作成しました'}</div>
+    <div style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;">下の文面をコピーして、LINEで本人に送ってください</div>
+    <textarea id="credText" readonly style="width:100%;height:210px;font-size:12.5px;padding:8px;border:1px solid var(--line);border-radius:2px;box-sizing:border-box;"></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button class="btn btn-stamp" style="flex:1;" id="credCopyBtn">LINE用の文面をコピー</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('credModal').remove()">閉じる</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const ta = document.getElementById('credText'); ta.value = text;
+  document.getElementById('credCopyBtn').onclick = async ()=>{
+    let ok = false;
+    try{ await navigator.clipboard.writeText(text); ok = true; }catch(_){}
+    if(!ok){ try{ ta.focus(); ta.select(); ok = document.execCommand('copy'); }catch(_){} }
+    const b = document.getElementById('credCopyBtn'); b.textContent = ok ? 'コピーしました ✓' : 'コピーできませんでした(文面を長押しでコピー)';
+  };
+}
 async function resetStaffPassword(id){
   const s = staffList.find(x=>String(x.id)===String(id)); if(!s) return;
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
@@ -932,7 +958,7 @@ async function resetStaffPassword(id){
     const { data, error } = await sb.functions.invoke('admin-create-staff-user', { body: { action:'reset_password', staff_id:Number(id), password:input } });
     if(error){ let d=error.message||String(error); try{ const b=await error.context.json(); if(b&&b.error) d=b.error; }catch(_){} throw new Error(d); }
     if(data && data.error) throw new Error(data.error);
-    prompt(`再発行しました。${s.name} さんにこのパスワードを伝えてください(ログイン後、ホーム画面の🔑で自分のパスワードに変更できます)`, input);
+    showCredModal(s.name, s.email||'', input, true);
   }catch(e){ toast('再発行に失敗しました: '+(e.message||e)); }
 }
 function genAcctPassword(){
@@ -964,6 +990,7 @@ async function createStaffAccount(){
       throw new Error(detail);
     }
     if(data && data.error) throw new Error(data.error);
+    showCredModal(name, email, password, false);
     document.getElementById('newAcctName').value = '';
     document.getElementById('newAcctEmail').value = '';
     document.getElementById('newAcctPassword').value = '';
