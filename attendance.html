@@ -229,7 +229,7 @@ function render() {
 
     const self = targetId === ME.id; // 自分の記録は訂正できない(DB側でも禁止)
     if (self) html += `<div class="note" style="margin-bottom:10px;">自分の勤務記録は、ここでは見るだけです。訂正が必要なときは店主に依頼してください。</div>`;
-    else html += `<button class="add-btn" onclick="openEditor(null)">＋ 勤務を追加(押し忘れ・手入力)</button>`;
+    else html += `<button class="add-btn" onclick="openEditor(null)">＋ 打刻の修正(押し忘れ・手入力)</button>`;
 
     html += `<div class="card">`;
     if (rows.length === 0) html += `<div class="note">この月の記録はありません</div>`;
@@ -243,6 +243,7 @@ function render() {
           : esc(bizTime(r.clock_out, r.business_date))}
           ${r.source === 'manual' ? '<span class="tag">手入力</span>' : ''}${r.edited ? '<span class="tag">修正済み</span>' : ''}
           <div class="plan-line">${shiftInfo(r).line}</div>
+          ${r.note ? `<div class="plan-line">理由: ${esc(r.note)}</div>` : ''}
           ${open && !working && !self ? `<button class="fixbtn" onclick="event.stopPropagation();openEditor(${r.id},'out')">退勤を入力</button>` : ''}</div>
         <div class="h">${open ? '' : esc(durText(new Date(r.clock_out) - new Date(r.clock_in)))}</div>
       </div>`;
@@ -253,7 +254,7 @@ function render() {
       html += `<details><summary>削除された記録(${deletedRows.length}件)</summary><div class="card hist">${deletedRows.map(h => {
         const o = h.old_row;
         return `${esc(dateLabel(o.business_date))} ${esc(bizTime(o.clock_in, o.business_date))} 〜 ${o.clock_out ? esc(bizTime(o.clock_out, o.business_date)) : '(退勤なし)'}
-          <span class="tag">${esc(new Date(h.changed_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))} に削除</span>`;
+          <span class="tag">${esc(new Date(h.changed_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))} に削除</span>${o.note ? `<span class="tag">${esc(o.note.replace(/^削除: /, '理由: '))}</span>` : ''}`;
       }).join('<br>')}</div></details>`;
     }
   }
@@ -314,7 +315,7 @@ async function openEditor(id, focus) {
   const ov = document.createElement('div');
   ov.className = 'overlay'; ov.id = 'editor';
   ov.innerHTML = `<div class="sheet">
-    <h2>${editing ? '勤務の訂正' : '勤務を追加'} <span class="note">(${esc(staffName(targetId))})</span></h2>
+    <h2>打刻の修正 <span class="note">(${esc(staffName(targetId))})</span></h2>
     <div class="field"><label>日付(営業日)</label><input type="date" id="ed-date" value="${date}"></div>
     <div class="two">
       <div class="field"><label>出勤</label><input type="time" id="ed-in" value="${inV}"></div>
@@ -322,7 +323,8 @@ async function openEditor(id, focus) {
         <button class="btn-clear" type="button" onclick="document.getElementById('ed-out').value=''">退勤なしにする</button></div>
     </div>
     <div class="note" style="margin-bottom:10px;">深夜(0:00〜6:59)は、翌日の時刻として扱われます(例:退勤 01:00 → 一覧では 25:00 と表示)。</div>
-    <div class="field"><label>メモ(任意)</label><input type="text" id="ed-note" value="${editing && editing.note ? esc(editing.note) : ''}" placeholder="例:押し忘れのため手入力"></div>
+    ${editing && editing.note ? `<div class="note" style="margin-bottom:8px;">前回の修正理由: ${esc(editing.note)}</div>` : ''}
+    <div class="field"><label>修正理由(必須)</label><input type="text" id="ed-note" maxlength="100" value="" placeholder="例:退勤の押し忘れ(本人申請あり)"></div>
     <div id="ed-msg"></div>
     <div class="btns">
       ${editing ? '<button class="btn-del" onclick="deleteRow()">削除</button>' : ''}
@@ -345,7 +347,7 @@ async function loadRowHistory(id) {
   el.innerHTML = `<details open style="margin-top:14px;"><summary>変更履歴(${data.length}件)</summary><div class="hist">${data.map(h => {
     const o = h.old_row;
     return `変更前: ${esc(bizTime(o.clock_in, o.business_date))} 〜 ${o.clock_out ? esc(bizTime(o.clock_out, o.business_date)) : '(退勤なし)'}
-      <span class="tag">${esc(new Date(h.changed_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>`;
+      <span class="tag">${esc(new Date(h.changed_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}</span>${o.note ? `<span class="tag">その時点の理由: ${esc(o.note)}</span>` : ''}`;
   }).join('<br>')}</div></details>`;
 }
 
@@ -355,7 +357,8 @@ async function saveRow() {
   const date = document.getElementById('ed-date').value;
   const inV = document.getElementById('ed-in').value;
   const outV = document.getElementById('ed-out').value;
-  const note = document.getElementById('ed-note').value.trim() || null;
+  const note = document.getElementById('ed-note').value.trim();
+  if (!note) return edMsg('修正理由を入れてください(必須です)');
   if (!date) return edMsg('日付を入れてください');
   if (!inV) return edMsg('出勤の時刻を入れてください');
   const clock_in = toISO(date, inV);
@@ -377,7 +380,11 @@ async function saveRow() {
 
 async function deleteRow() {
   if (!editing) return;
-  if (!window.confirm('この勤務記録を削除しますか?\n(削除しても、店主の画面の「削除された記録」に残ります)')) return;
+  const reason = document.getElementById('ed-note').value.trim();
+  if (!reason) return edMsg('削除する理由を「修正理由」に入れてください(必須です)');
+  if (!window.confirm('この打刻の記録を削除しますか?\n(削除しても、店主の画面の「削除された記録」に、理由つきで残ります)')) return;
+  const up = await sb.from('attendance').update({ note: '削除: ' + reason }).eq('id', editing.id); // 理由を履歴に残してから削除する
+  if (up.error) return edMsg('削除に失敗しました: ' + (up.error.message || ''));
   const { error } = await sb.from('attendance').delete().eq('id', editing.id);
   if (error) return edMsg('削除に失敗しました: ' + (error.message || ''));
   closeEditor();
