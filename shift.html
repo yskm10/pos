@@ -46,12 +46,17 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
 .seg button.ng.on{background:#5a2323;color:#ffb3b3;}
 .memo{width:100%;margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;font-size:13px;}
 .tag{display:inline-block;font-size:10.5px;padding:2px 6px;border-radius:6px;background:#2e3250;color:#9ca3af;margin-left:3px;}
+.tag.closed{background:#5a2323;color:#ffb3b3;}
+.bulk{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 2px 10px;font-size:12px;color:#9ca3af;}
+.bulk select{padding:8px;border-radius:8px;border:1px solid #2e3250;background:#1a1d2a;color:#e8eaf0;}
+.bulk button{background:#22263a;color:#e8eaf0;padding:8px 10px;font-size:12px;}
 .tag.ok{background:#1e3d2c;color:#7fd8a6;} .tag.any{background:#4a3d1a;color:#f0cf7a;} .tag.ng{background:#5a2323;color:#ffb3b3;}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:flex;align-items:flex-end;justify-content:center;}
 .sheet{background:#1a1d2a;border:1px solid #2e3250;border-radius:18px 18px 0 0;width:100%;max-width:560px;padding:18px 16px 24px;max-height:92vh;overflow:auto;}
 .sheet h2{font-size:16px;margin-bottom:12px;}
 .prow{padding:10px 0;border-top:1px solid #2e3250;}
 .prow:first-of-type{border-top:none;}
+.crow{padding:4px 0 12px;}
 .prow .nm{font-size:14px;font-weight:700;margin-bottom:6px;}
 .prow .tm{display:flex;gap:8px;align-items:center;}
 .prow input[type=time]{flex:1;padding:10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;}
@@ -84,7 +89,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const DEFAULT_START = '17:00', DEFAULT_END = '23:00'; // 「出勤にする」を押したときの初期値
 
 let ME = null, staffAll = [], month = null, view = 'shift';
-let shifts = [], reqs = [], loadSeq = 0, editingDate = null, deadlineDay = null, periods = [], rules = [];
+let shifts = [], reqs = [], loadSeq = 0, editingDate = null, deadlineDay = null, periods = [], rules = [], closedDays = [], mgrCanEditClosed = false, bulkDowVal = 0;
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad2 = n => String(n).padStart(2, '0');
@@ -161,14 +166,17 @@ async function reloadAll() {
     if (e0) throw e0;
     staffAll = st || [];
     const r = monthRange();
-    const [a, b, c, d, e2] = await Promise.all([
+    const [a, b, c, d, e2, f2] = await Promise.all([
       sb.from('shifts').select('*').gte('date', r.first).lte('date', r.last),
       sb.from('shift_requests').select('*').gte('date', r.first).lte('date', r.last),
-      sb.from('shift_config').select('request_deadline_day').eq('id', 1).maybeSingle(),
+      sb.from('shift_config').select('*').eq('id', 1).maybeSingle(),
       sb.from('shift_deadline_periods').select('*').lte('period_start', r.last).gte('period_end', r.first),
-      sb.from('shift_deadline_rules').select('*')
+      sb.from('shift_deadline_rules').select('*'),
+      sb.from('shop_closed_days').select('*').gte('date', r.first).lte('date', r.last)
     ]);
     rules = (e2 && e2.data ? e2.data : []).slice().sort((x, y) => y.id - x.id); // 重なる場合は後から作ったものを優先
+    closedDays = (f2 && f2.data) || [];
+    mgrCanEditClosed = !!(c.data && c.data.manager_can_edit_closed);
     deadlineDay = c.data ? c.data.request_deadline_day : null;
     periods = (d.data || []).slice().sort((x, y) => y.id - x.id); // 重なる場合は後から作ったものを優先
     if (a.error) throw a.error; if (b.error) throw b.error;
@@ -195,6 +203,10 @@ function shiftMonth(d) {
 function days() { const r = monthRange(); return Array.from({ length: r.n }, (_, i) => `${month.y}-${pad2(month.m)}-${pad2(i + 1)}`); }
 function dcls(d) { const w = dow(d); return holidayName(d) || w === 0 ? 'sun' : w === 6 ? 'sat' : ''; }
 function dlabel(d) { const h = holidayName(d); return dateLabel(d) + (h ? `<span class="hol">${esc(h)}</span>` : ''); }
+// 定休日(店主のみ登録。店主が設定で許可すると店長も登録できる)
+const closedOf = d => closedDays.find(x => x.date === d) || null;
+const canEditClosed = () => !!ME && (ME.role === 'owner' || (ME.role === 'manager' && mgrCanEditClosed));
+const closedTag = d => { const c = closedOf(d); return c ? `<span class="tag closed">定休日${c.note ? '・' + esc(c.note) : ''}</span>` : ''; };
 function nameOf(id) { const s = staffAll.find(x => x.id === id); return s ? s.name.replace(/[ 　].*$/, '') : '?'; } // 苗字だけ表示
 
 function render() {
@@ -211,10 +223,14 @@ function renderShift() {
   if (isWorker()) html += `<div class="sum">
     <div class="box"><div class="v">${mine.length}日</div><div class="k">あなたの出勤予定</div></div>
     <div class="box"><div class="v">${esc(hoursText(totalMin))}</div><div class="k">予定の合計</div></div></div>`;
-  if (isAdmin()) html += `<div class="note" style="margin:0 2px 8px;">日付をタップすると、その日のシフトを入力できます。スタッフの希望も表示されます。</div>`;
+  if (isAdmin()) html += `<div class="note" style="margin:0 2px 8px;">日付をタップすると、その日のシフトを入力できます。スタッフの希望も表示されます。${canEditClosed() ? '定休日の登録もできます。' : ''}</div>`;
+  if (canEditClosed()) html += `<div class="bulk">定休日:毎週
+    <select id="bulkDow" onchange="bulkDowVal=+this.value">${'日月火水木金土'.split('').map((w, i) => `<option value="${i}" ${i === bulkDowVal ? 'selected' : ''}>${w}曜</option>`).join('')}</select>
+    <button onclick="bulkClosed(true)">この月を一括で定休日にする</button><button onclick="bulkClosed(false)">一括で解除</button></div>`;
   html += `<div class="card">` + days().map(d => {
     const list = shifts.filter(s => s.date === d).sort((a, b) => a.start_min - b.start_min || a.staff_id - b.staff_id);
-    const body = list.length ? list.map(s => `<div class="${s.staff_id === ME.id ? 'me' : ''}">${esc(nameOf(s.staff_id))} ${fmtMin(s.start_min)}〜${fmtMin(s.end_min)}${s.note ? ` <span class="tag">${esc(s.note)}</span>` : ''}</div>`).join('') : '<span class="empty">—</span>';
+    const cl = closedTag(d);
+    const body = cl + (list.length ? list.map(s => `<div class="${s.staff_id === ME.id ? 'me' : ''}">${esc(nameOf(s.staff_id))} ${fmtMin(s.start_min)}〜${fmtMin(s.end_min)}${s.note ? ` <span class="tag">${esc(s.note)}</span>` : ''}</div>`).join('') : (cl ? '' : '<span class="empty">—</span>'));
     return `<div class="day ${isAdmin() ? 'tap' : ''}" ${isAdmin() ? `onclick="openDay('${d}')"` : ''}>
       <div class="d ${dcls(d)}">${dlabel(d)}</div><div class="b ${d < today ? 'past' : ''}">${body}</div></div>`;
   }).join('') + `</div>`;
@@ -241,12 +257,31 @@ function openDay(d) {
         <button class="clr" onclick="fillRow(${s.id},false)">休み</button>
       </div></div>`;
   }).join('');
-  ov.innerHTML = `<div class="sheet"><h2>${esc(dateLabel(d))} のシフト</h2>
+  const cd = closedOf(d);
+  const closedBox = canEditClosed() ? `<div class="crow"><label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;"><input type="checkbox" id="edClosed" ${cd ? 'checked' : ''} style="width:20px;height:20px;"> 定休日にする</label>
+      <input class="memo" id="edClosedNote" maxlength="30" placeholder="メモ(任意・例:貸切、棚卸し)" value="${esc(cd ? cd.note || '' : '')}"></div>` : (cd ? `<div class="crow"><span class="tag closed">定休日${cd.note ? '・' + esc(cd.note) : ''}</span></div>` : '');
+  ov.innerHTML = `<div class="sheet"><h2>${esc(dateLabel(d))} のシフト</h2>${closedBox}
     ${ws.length ? rows : '<div class="note">打刻の対象になっている人がいません。勤怠管理の「設定」で対象を選んでください。</div>'}
     <div class="note" style="margin-top:8px;">時刻の空欄=出勤なし。0:00〜6:59は翌日の深夜として扱います(例:1:00 → 25:00)。</div>
     <div id="edErr"></div>
     <div class="btns"><button class="btn-cancel" onclick="closeEditor()">キャンセル</button>${ws.length ? '<button class="btn-save" id="edSave" onclick="saveDay()">保存</button>' : ''}</div></div>`;
   document.body.appendChild(ov);
+}
+async function saveClosed(d) {
+  const box = document.getElementById('edClosed'); if (!box) return;
+  const note = (document.getElementById('edClosedNote').value || '').trim() || null, cur = closedOf(d);
+  if (box.checked) { const { error } = await sb.from('shop_closed_days').upsert({ date: d, note }, { onConflict: 'date' }); if (error) throw error; }
+  else if (cur) { const { error } = await sb.from('shop_closed_days').delete().eq('date', d); if (error) throw error; }
+}
+async function bulkClosed(on) {
+  const w = +document.getElementById('bulkDow').value, target = days().filter(d => dow(d) === w);
+  const label = '日月火水木金土'[w] + '曜';
+  if (!confirm(`${month.m}月の${label}(${target.length}日)を${on ? '定休日にします' : '定休日から外します'}。よろしいですか?`)) return;
+  try {
+    if (on) { const { error } = await sb.from('shop_closed_days').upsert(target.map(d => ({ date: d, note: closedOf(d) ? closedOf(d).note : null })), { onConflict: 'date' }); if (error) throw error; }
+    else { const { error } = await sb.from('shop_closed_days').delete().in('date', target); if (error) throw error; }
+    await reloadAll();
+  } catch (e) { alert('保存に失敗しました: ' + (e.message || e)); }
 }
 function closeEditor() { const e = document.getElementById('editor'); if (e) e.remove(); editingDate = null; }
 function fillRow(sid, on) {
@@ -267,6 +302,7 @@ async function saveDay() {
   }
   const btn = document.getElementById('edSave'); btn.disabled = true; btn.textContent = '保存中...';
   try {
+    await saveClosed(d);
     if (ups.length) { const { error } = await sb.from('shifts').upsert(ups, { onConflict: 'staff_id,date' }); if (error) throw error; }
     const existing = dels.filter(sid => shifts.some(x => x.date === d && x.staff_id === sid));
     if (existing.length) { const { error } = await sb.from('shifts').delete().eq('date', d).in('staff_id', existing); if (error) throw error; }
@@ -312,11 +348,11 @@ function renderReq() {
   html += `<div class="note" style="margin:0 2px 8px;">日ごとに ○出られる / △どちらでも / ×出られない を選んでください。もう一度押すと取り消せます。時間の希望は、メモ欄に書いてください(例:20時まで)。選んだ時点で自動保存されます。入力済み:${done}日</div><div class="card">`;
   html += days().map(d => {
     const rq = reqs.find(r => r.staff_id === ME.id && r.date === d);
-    const past = d < today || isClosed(d), st = rq ? rq.status : '';
+    const isCl = !!closedOf(d), past = d < today || isClosed(d) || isCl, st = rq ? rq.status : '';
     const btn = (k, l) => `<button class="${k} ${st === k ? 'on' : ''}" ${past ? 'disabled' : ''} onclick="setReq('${d}','${k}')">${l}</button>`;
     const mySh = shifts.find(s => s.staff_id === ME.id && s.date === d);
     return `<div class="day"><div class="d ${dcls(d)}">${dlabel(d)}</div><div class="b ${past ? 'past' : ''}">
-      <div class="seg">${btn('ok', '○')}${btn('any', '△')}${btn('ng', '×')}</div>
+      ${closedTag(d)}<div class="seg">${btn('ok', '○')}${btn('any', '△')}${btn('ng', '×')}</div>
       ${rq && !past ? `<input class="memo" maxlength="40" placeholder="メモ(任意)" value="${esc(rq.note || '')}" onchange="setNote('${d}',this.value)">` : (rq && rq.note ? `<div class="note">${esc(rq.note)}</div>` : '')}
       ${mySh ? `<div class="me" style="margin-top:4px;">確定シフト ${fmtMin(mySh.start_min)}〜${fmtMin(mySh.end_min)}</div>` : ''}
     </div></div>`;

@@ -230,6 +230,10 @@
         <button class="btn btn-stamp" id="newAcctBtn" onclick="createStaffAccount()">アカウントを作成</button>
       </div>
     </div>
+    <div class="section-title">シフトの定休日</div>
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">定休日は、シフト画面(📅 シフト)で日付をタップして登録します(毎週◯曜の一括登録もできます)。登録できるのは、今は店主だけです。店長にも任せるときは、下をオンにしてください。</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:22px;"><input type="checkbox" id="mgrClosedEdit" onchange="saveMgrClosedEdit(this.checked)" style="width:18px;height:18px;"> 店長も定休日を登録できるようにする</label>
+
     <div class="section-title">シフト希望の締切</div>
     <div style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;">スタッフがシフト希望を出せる期限です。「何日分のシフトか」ごとに、「前月/当月の◯日まで」を決めます。毎月くり返し適用されます。締切を過ぎると、スタッフは希望の追加・変更ができなくなります(店主・店長がシフトを入力するのは締切後もできます)。登録がなければ締切なしです。<br>例:1〜15日分 → 前月20日まで / 16〜31日分 → 当月5日まで(月の長さを超える日付は、その月の末日になります)</div>
     <div id="shiftRuleArea"></div>
@@ -738,6 +742,16 @@ async function deleteShiftPeriod(id){
   if(error){ toast('削除に失敗しました: '+error.message); return; }
   toast('削除しました'); loadShiftPeriods();
 }
+async function loadShiftConfig(){
+  const el = document.getElementById('mgrClosedEdit'); if(!el) return;
+  const { data } = await sb.from('shift_config').select('manager_can_edit_closed').eq('id',1).maybeSingle();
+  el.checked = !!(data && data.manager_can_edit_closed);
+}
+async function saveMgrClosedEdit(v){
+  const { error } = await sb.from('shift_config').upsert({ id:1, manager_can_edit_closed: v, updated_at: new Date().toISOString() }, { onConflict:'id' });
+  if(error){ toast('保存に失敗しました: '+error.message); loadShiftConfig(); return; }
+  toast(v ? '店長も定休日を登録できるようにしました' : '定休日は店主だけが登録できます');
+}
 async function loadShiftRules(){
   const area = document.getElementById('shiftRuleArea'); if(!area) return;
   const { data, error } = await sb.from('shift_deadline_rules').select('*').order('day_from', {ascending:true});
@@ -776,7 +790,7 @@ async function loadMasters(){
     if(t.error) throw t.error;
     vendors = v.data||[]; staffList = s.data||[]; taxRates = t.data||[];
     renderVendors(); renderStaff(); renderTaxRates();
-    loadShiftRules(); loadShiftPeriods();
+    loadShiftRules(); loadShiftPeriods(); loadShiftConfig();
   }catch(e){
     document.getElementById('vendorArea').innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
   }
