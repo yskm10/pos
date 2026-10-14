@@ -43,6 +43,7 @@ button{cursor:pointer;border:none;border-radius:8px;font-weight:700;}
     </div>
     <div>
       <button class="icon-btn" onclick="location.reload()" title="更新">🔄</button>
+      <button class="icon-btn" id="pwBtn" style="display:none;" onclick="renderPwChange()" title="パスワード変更">🔑</button>
       <button class="icon-btn" id="logoutBtn" style="display:none;" onclick="doLogout()" title="ログアウト">🚪</button>
     </div>
   </div>
@@ -76,6 +77,7 @@ sb.auth.onAuthStateChange((event)=>{ if(event==='SIGNED_OUT') renderLogin(); });
 
 async function afterLogin(){
   document.getElementById('logoutBtn').style.display='inline-block';
+  document.getElementById('pwBtn').style.display='inline-block';
   // 初回ログイン時、staffテーブルの自分の行(メール一致)に自分のアカウントを紐付ける
   try{ await sb.rpc('link_my_staff_account'); }catch(e){ console.error(e); }
   await renderMenu();
@@ -83,6 +85,7 @@ async function afterLogin(){
 
 function renderLogin(showSignup){
   document.getElementById('logoutBtn').style.display='none';
+  document.getElementById('pwBtn').style.display='none';
   const app = document.getElementById('app');
   if(!showSignup){
     app.innerHTML = `
@@ -150,6 +153,29 @@ async function doSignup(){
     msg.innerHTML = `<div class="err">作成に失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
     btn.disabled=false; btn.textContent='アカウントを作成';
   }
+}
+
+function renderPwChange(){
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">パスワード変更</div>
+      <div class="field"><label>新しいパスワード(6文字以上)</label><input type="password" id="pw1" autocomplete="new-password"></div>
+      <div class="field"><label>もう一度入力</label><input type="password" id="pw2" autocomplete="new-password"></div>
+      <div id="pwMsg"></div>
+      <button class="btn btn-main" id="pwSave" onclick="doPwChange()">変更する</button>
+      <button class="btn btn-link" onclick="renderMenu()">戻る</button>
+    </div>`;
+}
+async function doPwChange(){
+  const p1 = document.getElementById('pw1').value, p2 = document.getElementById('pw2').value;
+  const msg = document.getElementById('pwMsg'), btn = document.getElementById('pwSave');
+  if(p1.length<6){ msg.innerHTML='<div class="err">パスワードは6文字以上にしてください</div>'; return; }
+  if(p1!==p2){ msg.innerHTML='<div class="err">2回の入力が一致しません</div>'; return; }
+  btn.disabled=true; btn.textContent='変更中...';
+  const { error } = await sb.auth.updateUser({ password: p1 });
+  if(error){ msg.innerHTML=`<div class="err">変更に失敗しました: ${escapeHtml(error.message)}</div>`; btn.disabled=false; btn.textContent='変更する'; return; }
+  msg.innerHTML='<div class="ok">パスワードを変更しました。次回から新しいパスワードでログインしてください</div>';
+  btn.style.display='none';
 }
 
 async function doLogout(){ await sb.auth.signOut(); renderLogin(); }

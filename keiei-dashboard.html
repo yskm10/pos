@@ -825,6 +825,7 @@ function renderStaff(){
         <select style="flex:1;padding:6px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;background:var(--white);font-family:'Noto Sans JP',sans-serif;" onchange="updateStaffRole('${s.id}', this.value)">
           ${roleOptions(s.role)}
         </select>
+        ${s.auth_user_id?`<button class="btn btn-ghost btn-sm" onclick="resetStaffPassword('${s.id}')">パスワード再発行</button>`:''}
         <span style="font-size:10.5px;color:var(--ink-soft);">${s.auth_user_id?'✓ ログイン連携済み':(s.email?'未ログイン(本人がホーム画面でアカウント作成待ち)':'メール未登録')}</span>
       </div>
     </div>`).join('');
@@ -919,6 +920,20 @@ async function deleteStaff(id){
     if(error) throw error;
     await loadMasters();
   }catch(e){ toast('削除に失敗しました: '+(e.message||e)); }
+}
+async function resetStaffPassword(id){
+  const s = staffList.find(x=>String(x.id)===String(id)); if(!s) return;
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let pw = ''; for(let i=0;i<8;i++) pw += chars[Math.floor(Math.random()*chars.length)];
+  const input = prompt(`${s.name} さんの新しい仮パスワード(6文字以上)を確認してください。このまま「OK」で再発行します`, pw);
+  if(input===null) return;
+  if(input.length<6){ toast('パスワードは6文字以上にしてください'); return; }
+  try{
+    const { data, error } = await sb.functions.invoke('admin-create-staff-user', { body: { action:'reset_password', staff_id:Number(id), password:input } });
+    if(error){ let d=error.message||String(error); try{ const b=await error.context.json(); if(b&&b.error) d=b.error; }catch(_){} throw new Error(d); }
+    if(data && data.error) throw new Error(data.error);
+    prompt(`再発行しました。${s.name} さんにこのパスワードを伝えてください(ログイン後、ホーム画面の🔑で自分のパスワードに変更できます)`, input);
+  }catch(e){ toast('再発行に失敗しました: '+(e.message||e)); }
 }
 function genAcctPassword(){
   // 見間違えやすい文字(0/O, 1/l/I など)を避けた8文字のランダム仮パスワード
