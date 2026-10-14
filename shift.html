@@ -144,6 +144,7 @@ async function init() {
     ME = data;
   } catch (e) { return showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
   if (!ME || !ME.active || !['owner', 'manager', 'staff'].includes(ME.role)) return showMsg('この画面を使える権限がありません。');
+  if (view === 'req' && !isWorker()) { view = 'shift'; try { history.replaceState(null, '', '#shift'); } catch (e) {} } // 希望を出すのは打刻の対象者だけ
   const t = todayStr();
   month = { y: +t.slice(0, 4), m: +t.slice(5, 7) };
   await reloadAll();
@@ -154,7 +155,7 @@ function showMsg(html) { document.getElementById('app').innerHTML = `<div class=
 function renderTabs() {
   const t = (id, label) => `<a href="#${id}" class="${view === id ? 'on' : ''}">${label}</a>`;
   document.getElementById('tabs').innerHTML =
-    t('shift', '📅 シフト') + t('req', '✋ 希望') +
+    t('shift', '📅 シフト') + (isWorker() ? t('req', '✋ 希望') : '') +
     `<a href="./punch.html#scan">⏱ 打刻</a>` + (isAdmin() ? `<a href="./attendance.html">🕒 勤怠管理</a>` : '');
 }
 

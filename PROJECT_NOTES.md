@@ -111,6 +111,7 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 
 - **ファイル**: `punch.html`(スタッフのスマホ用・自分の勤務記録も見える)、`attendance.html`(店主・店長用:月別一覧・訂正・追加・削除)、`pos.html`(ヘッダーの「📲 打刻QR」ボタン)、`home.html`(タイル追加)
 - **QRの仕組み**: サーバー側で30秒ごとに切り替わるトークン(`<窓番号>.<HMAC-SHA256先頭20桁>`)。`get_punch_token()`が発行、`punch(p_token,p_kind)`が検証。有効期間は約60〜90秒。QR内URL=`https://yskm10.github.io/pos/punch.html?t=トークン`(読み取り後はURLからトークンを消す)
+- **レジ(POS)アカウントの「打刻」タブ**(2026-10-14追加): `punch_display=true`のアカウントでシフト・勤怠の「⏱ 打刻」タブを開くと、打刻ボタンの代わりに回転QRが自動表示される(pos.htmlの「📲 打刻QR」ボタンと同じ仕組み)。店主アカウントは、打刻画面ではQRを出さない(「打刻の対象でない」旨の表示)。「✋ 希望」タブは打刻の対象者(`attendance_enabled=true`)にだけ表示し、それ以外のアカウントでは非表示
 - **QRを出せる人**: role=owner、または`staff.punch_display=true`の端末アカウント。ただし`attendance_enabled=true`の人は不可(自宅から自分のQRで打刻するのを防ぐ)。両フラグ同時trueはCHECK制約で禁止
 - **打刻できる人**: `staff.attendance_enabled=true`でログイン済みの人のみ。設定は attendance.html の「設定」カード(店主のみ)
 - **打刻のエラー**: token_expired / token_invalid / not_authenticated / not_enabled / already_in(出勤済み) / not_in(出勤中でない) / bad_request

@@ -6,6 +6,7 @@
 <title>出退勤の打刻</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 body{background:#0f1117;font-family:'Helvetica Neue',Arial,'Hiragino Sans','Yu Gothic',sans-serif;color:#e8eaf0;min-height:100vh;}
@@ -73,7 +74,7 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
       <button class="icon-btn" id="logoutBtn" style="display:none;" onclick="doLogout()" title="ログアウト">🚪</button>
     </div>
   </div>
-  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="">✋ 希望</a><a href="./punch.html#scan" class="on">⏱ 打刻</a><a href="./attendance.html" class="" id="tabAtt" style="display:none">🕒 勤怠管理</a></div>
+  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="" id="tabReq">✋ 希望</a><a href="./punch.html#scan" class="on">⏱ 打刻</a><a href="./attendance.html" class="" id="tabAtt" style="display:none">🕒 勤怠管理</a></div>
   <div id="app"><div class="spinner"></div></div>
 </div>
 
@@ -129,7 +130,7 @@ async function init() {
   if (!session) { renderLogin(); return; }
   await afterLogin(session);
 }
-sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; renderLogin(); } });
+sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; _qrOn = false; clearTimeout(_qrTimer); clearInterval(_qrTick); renderLogin(); } });
 
 function renderLogin() {
   document.getElementById('logoutBtn').style.display = 'none';
@@ -169,10 +170,12 @@ async function afterLogin(session) {
   document.getElementById('logoutBtn').style.display = 'inline-block';
   document.getElementById('app').innerHTML = '<div class="spinner"></div>';
   try {
-    const { data, error } = await sb.from('staff').select('id,name,role,active,attendance_enabled')
+    const { data, error } = await sb.from('staff').select('id,name,role,active,attendance_enabled,punch_display')
       .eq('auth_user_id', session.user.id).maybeSingle();
     if (error) throw error;
     me = data;
+    const tr = document.getElementById('tabReq');
+    if (tr && me && !me.attendance_enabled) tr.style.display = 'none'; // 希望を出すのは打刻の対象者だけ
     const tb = document.getElementById('tabAtt');
     if (tb && me && ['owner', 'manager'].includes(me.role)) tb.style.display = '';
   } catch (e) {
@@ -184,6 +187,8 @@ async function afterLogin(session) {
     return;
   }
   document.getElementById('who').textContent = me.name || '';
+  // レジのアカウント(QR表示端末に設定されたアカウント)は、打刻の代わりにQRを表示する
+  if (me.active && !me.attendance_enabled && me.role !== 'accounting' && me.punch_display) { startQrDisplay(); return; }
   if (!me.active || !me.attendance_enabled) {
     document.getElementById('app').innerHTML = `<div class="card"><div class="note">このアカウントは、まだ打刻の対象に設定されていません。店主に設定を依頼してください。</div></div>`;
     return;
@@ -307,6 +312,41 @@ async function startScan() {
 }
 
 window.addEventListener('hashchange', () => { if (location.hash === '#scan' && me && me.attendance_enabled && !TOKEN && !scanStream) startScan(); });
+
+// ---- レジ側: スタッフが読み取る打刻QRの表示(30秒ごとに切り替わる。生成・検証はサーバー側)----
+const PUNCH_PAGE_URL = 'https://yskm10.github.io/pos/punch.html';
+let _qrTimer = null, _qrTick = null, _qrExpiresAt = 0, _qrOn = false;
+function startQrDisplay() {
+  _qrOn = true;
+  document.getElementById('app').innerHTML = `<div class="card" style="text-align:center;">
+    <div style="font-size:16px;font-weight:800;margin-bottom:6px;">📲 出退勤の打刻</div>
+    <div class="note" style="margin-bottom:14px;">スマホのカメラでQRを読み取って、出勤・退勤を打刻してください</div>
+    <div id="qrBox" style="background:#fff;border-radius:12px;padding:14px;width:min(70vw,320px);height:min(70vw,320px);margin:0 auto;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:13px;">読み込み中…</div>
+    <div style="height:6px;background:#22263a;border-radius:3px;margin:14px auto 6px;max-width:320px;overflow:hidden;"><div id="qrBar" style="height:100%;width:0;background:#5b8ef5;"></div></div>
+    <div class="note" id="qrMsg">QRは30秒ごとに自動で切り替わります</div></div>`;
+  clearInterval(_qrTick);
+  _qrTick = setInterval(() => { const b = document.getElementById('qrBar'); if (!b || !_qrExpiresAt) return; b.style.width = Math.min(100, Math.max(0, _qrExpiresAt - Date.now()) / 30000 * 100) + '%'; }, 250);
+  refreshQr();
+}
+async function refreshQr() {
+  if (!_qrOn) return;
+  const box = document.getElementById('qrBox'), msg = document.getElementById('qrMsg');
+  if (!box) return;
+  try {
+    const { data, error } = await sb.rpc('get_punch_token');
+    if (error) throw error;
+    if (!data || !data.ok) { _qrExpiresAt = 0; box.textContent = '表示できません'; msg.style.color = '#e05252'; msg.textContent = data && data.code === 'not_authenticated' ? 'ログインが切れています。ログインし直してください。' : 'このアカウントではQRを表示できません。'; return; }
+    if (typeof qrcode === 'undefined') throw new Error('QRの部品を読み込めませんでした');
+    const qr = qrcode(0, 'M'); qr.addData(PUNCH_PAGE_URL + '?t=' + encodeURIComponent(data.token)); qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }).replace('<svg ', '<svg style="width:100%;height:100%;display:block;" ');
+    msg.style.color = ''; msg.textContent = 'QRは30秒ごとに自動で切り替わります';
+    _qrExpiresAt = Date.now() + data.expires_in * 1000;
+    clearTimeout(_qrTimer); _qrTimer = setTimeout(refreshQr, Math.max(1500, data.expires_in * 1000));
+  } catch (e) {
+    msg.style.color = '#e05252'; msg.textContent = '通信に失敗しました。再接続しています…';
+    clearTimeout(_qrTimer); _qrTimer = setTimeout(refreshQr, 4000);
+  }
+}
 
 let clockTimer = null;
 function tickClock() {

@@ -80,7 +80,7 @@ summary{cursor:pointer;color:#9ca3af;font-size:12.5px;padding:6px 2px;}
       <a class="icon-btn" href="./home.html" title="ホームへ">🏠</a>
     </div>
   </div>
-  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="">✋ 希望</a><a href="./punch.html#scan" class="">⏱ 打刻</a><a href="./attendance.html" class="on" id="tabAtt">🕒 勤怠管理</a></div>
+  <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="" id="tabReq">✋ 希望</a><a href="./punch.html#scan" class="">⏱ 打刻</a><a href="./attendance.html" class="on" id="tabAtt">🕒 勤怠管理</a></div>
   <div id="app"><div class="spinner"></div></div>
 </div>
 
@@ -134,9 +134,10 @@ async function init() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { showMsg('ログインが必要です。<br>ホーム画面でログインしてから開いてください。'); return; }
   try {
-    const { data, error } = await sb.from('staff').select('id,name,role,active').eq('auth_user_id', session.user.id).maybeSingle();
+    const { data, error } = await sb.from('staff').select('id,name,role,active,attendance_enabled').eq('auth_user_id', session.user.id).maybeSingle();
     if (error) throw error;
     ME = data;
+    const tr = document.getElementById('tabReq'); if (tr && ME && !ME.attendance_enabled) tr.style.display = 'none';
   } catch (e) { showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); return; }
   if (!ME || !ME.active || !['owner', 'manager'].includes(ME.role)) { showMsg('この画面は、店主・店長のみ使えます。'); return; }
   const t = bizToday();
