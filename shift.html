@@ -143,7 +143,7 @@ async function init() {
     if (error) throw error;
     ME = data;
   } catch (e) { return showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
-  if (!ME || !ME.active || !['owner', 'manager', 'staff'].includes(ME.role)) return showMsg('この画面を使える権限がありません。');
+  if (!ME || !ME.active || !['owner', 'manager', 'staff', 'register'].includes(ME.role)) return showMsg('この画面を使える権限がありません。');
   if (view === 'req' && !isWorker()) { view = 'shift'; try { history.replaceState(null, '', '#shift'); } catch (e) {} } // 希望を出すのは打刻の対象者だけ
   const t = todayStr();
   month = { y: +t.slice(0, 4), m: +t.slice(5, 7) };

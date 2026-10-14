@@ -298,7 +298,7 @@ function confirmAction(msg, label, onOk){
 let SURL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
 let SKEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
 const sb = supabase.createClient(SURL, SKEY);
-let CURRENT_ROLE = null; // ログイン中のスタッフの役割(owner/manager/staff/accounting)
+let CURRENT_ROLE = null; // ログイン中のスタッフの役割(owner/manager/staff/register/accounting)
 let ACCESS_TOKEN = null; // ログイン中ユーザーのアクセストークン(RLS用)
 let PUNCH_QR_ALLOWED = false; // 「打刻QR」ボタンを出してよいアカウントか
 const PUNCH_PAGE_URL = "https://yskm10.github.io/pos/punch.html"; // スタッフのスマホで開く打刻ページ(QRに載せる)
@@ -519,7 +519,7 @@ async function afterPosLogin(session){
     PUNCH_QR_ALLOWED = !!data && !data.attendance_enabled && (data.role==='owner' || !!data.punch_display) && data.role!=='accounting';
   }catch(e){ console.error(e); CURRENT_ROLE = null; }
 
-  if(!CURRENT_ROLE || !['owner','manager','staff','accounting'].includes(CURRENT_ROLE)){
+  if(!CURRENT_ROLE || !['owner','manager','staff','register','accounting'].includes(CURRENT_ROLE)){
     STATE.view='noAccess'; render(); return;
   }
   STATE.loading = true; STATE.view = (CURRENT_ROLE==='accounting') ? 'sales' : 'tables'; render();

@@ -135,13 +135,14 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 
 ## 役割(role)と権限
 
-`staff`テーブルの`role`列で管理。値は `owner` / `manager` / `staff` / `accounting`。
+`staff`テーブルの`role`列で管理。値は `owner` / `manager` / `staff` / `register` / `accounting`(`register`は2026-10-14追加。`staff_role_check`制約に含む)。
 
 | role | 呼称 | home.htmlで見えるタイル | pos.htmlでの制限 |
 |---|---|---|---|
 | owner | 店主 | レジ・レジ用POS・チェックリスト・経費帳・シフト・勤怠・経営ダッシュボード | 全機能。売上タブも見える |
 | manager | 店長 | レジ・レジ用POS・チェックリスト・経費帳・シフト・勤怠 | 売上タブは非表示(店長が近隣に売上を話してしまう懸念があったため) |
 | staff | 一般スタッフ | レジ用POS・チェックリスト・シフト・勤怠 | 売上タブは非表示 |
+| register | レジ端末 | レジ用POS・チェックリスト・シフト(閲覧のみ)・打刻QR表示 | 一般スタッフと同じ(売上タブ非表示)。シフトは📅と⏱打刻(QR自動表示)のタブだけで、希望・勤怠管理は出ない。シフトの編集は不可(RLSで強制)。店のレジiPad用共用アカウント(POS)に割り当てる |
 | accounting | 経理 | レジ(売上専用)・経費帳 | ログインすると「売上」タブしか出ない。他の操作(注文/メニュー編集等)は不可。税理士など外部の人に渡す用途を想定 |
 
 ホーム画面のタイルは home.html の `APPS` 配列の `roles` で出し分けている。経営ダッシュボード(keiei-dashboard.html)のタイルは owner のみ(2026-10-13追加)。
@@ -222,3 +223,5 @@ keiei-dashboard.html 自体も、ログイン後に `staff.role = 'owner'` か�
 - checklist.htmlにログインゲートが未実装
 - 店舗PCで実際に動いている`proxy.py`(ポート80/ePOS-Print)と、このリポジトリの`proxy_server.py`
   (ポート9100)の内容が食い違っている(店舗PC側が正。リポジトリ側は古い可能性)
+
+- **レジ端末(register)権限**(2026-10-14): 共用のレジアカウント「POS」を一般スタッフと分けるために追加。DBは`staff_role_check`に`register`を追加し、`shifts`の閲覧ポリシーにも`register`を含めた(編集は`is_attendance_admin()`のまま)。画面側はhome/pos/shift/attendance/keiei-dashboardの許可リスト・ラベルに追加。**注意**: レジ用POS(店内プロキシ 192.168.10.200:8080)のpos.htmlを新しい版に差し替えてから、POSアカウントの権限を`register`に切り替えること(古いpos.htmlは許可リストに`register`がなく、ログインできなくなる)。テストアカウント(staff id 15〜18)は削除済み。POSアカウントは誤削除されたため2026-10-14に作り直し(id 19)

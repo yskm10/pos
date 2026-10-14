@@ -101,7 +101,7 @@ let loadSeq = 0;
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad2 = n => String(n).padStart(2, '0');
-const ROLE_LABEL = { owner: '店主', manager: '店長', staff: '一般スタッフ', accounting: '経理' };
+const ROLE_LABEL = { owner: '店主', manager: '店長', staff: '一般スタッフ', register: 'レジ端末', accounting: '経理' };
 
 // ---- 時刻(日本時間。営業日は7:00〜翌6:59。深夜は 25:00 のように表示)----
 const JST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
