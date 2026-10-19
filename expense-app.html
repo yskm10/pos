@@ -237,7 +237,7 @@
   .login-card .field{text-align:left;}
   .logout-btn{
     position:absolute;top:14px;right:14px;background:none;border:none;
-    color:var(--paper);opacity:.6;font-size:11px;cursor:pointer;letter-spacing:.05em;
+    color:var(--paper);opacity:.85;font-size:18px;cursor:pointer;letter-spacing:.05em;text-decoration:none;padding:4px 6px;
     font-family:'Noto Sans JP',sans-serif;
   }
 </style>
@@ -262,7 +262,8 @@
 </div>
 
 <div class="roll" style="position:relative;">
-  <button class="logout-btn" id="logoutBtn" style="display:none;" onclick="doLogout()">ログアウト</button>
+  <button class="logout-btn" onclick="location.reload()" title="更新" style="right:50px;">🔄</button>
+  <a class="logout-btn" href="./home.html" title="ホームへ">🏠</a>
   <h1>経 費 帳</h1>
   <p>RECEIPT LEDGER · MEDICOM</p>
 </div>
@@ -385,7 +386,6 @@ async function checkAuthAndInit(){
 function showLogin(){
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('mainWrap').style.display = 'none';
-  document.getElementById('logoutBtn').style.display = 'none';
 }
 
 // 経費帳を使えるのは、店主・経理のみ(店長・一般スタッフ・レジ端末は入れない)
@@ -401,7 +401,6 @@ async function canUseExpense(){
 function showNoAccess(){
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('mainWrap').style.display = 'none';
-  document.getElementById('logoutBtn').style.display = 'block';
   let el = document.getElementById('noAccess');
   if(!el){
     el = document.createElement('div'); el.id = 'noAccess';
@@ -416,7 +415,6 @@ async function showApp(){
   const na = document.getElementById('noAccess'); if(na) na.style.display = 'none';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('mainWrap').style.display = 'block';
-  document.getElementById('logoutBtn').style.display = 'block';
   loadData();
   loadPettyCash();
 }
@@ -444,10 +442,6 @@ async function doLogin(){
   btn.textContent = 'ログイン';
 }
 
-async function doLogout(){
-  await sb.auth.signOut();
-  showLogin();
-}
 
 document.getElementById('loginBtn').addEventListener('click', doLogin);
 document.getElementById('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });

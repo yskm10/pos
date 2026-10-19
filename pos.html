@@ -2485,7 +2485,7 @@ function render(){
       ${waitingChk>0?badge('会計待ち '+waitingChk,'#f5a623'):''}
       ${(!STATE.viewOnly && PUNCH_QR_ALLOWED)?`<button onclick="openPunchQr()" style="background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#e8eaf0;font-size:12px;font-weight:700;padding:6px 10px;" title="スタッフの出退勤の打刻用QRを表示">📲 打刻QR</button>`:''}
       <button onclick="location.reload()" style="background:none;border:none;color:#9ca3af;font-size:16px;padding:4px 6px;" title="更新">🔄</button>
-      ${!STATE.viewOnly?`<button onclick="doPosLogout()" style="background:none;border:none;color:#9ca3af;font-size:16px;padding:4px 6px;" title="ログアウト">🚪</button>`:''}
+      ${!STATE.viewOnly?`<a href="https://yskm10.github.io/pos/home.html" style="color:#9ca3af;font-size:16px;padding:4px 6px;text-decoration:none;" title="ホームへ">🏠</a>`:''}
     </div>
   </nav>`;
 

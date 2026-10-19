@@ -19,6 +19,7 @@
   .roll::after{content:"";position:absolute;left:0;right:0;bottom:-10px;height:20px;background:var(--ink);
     clip-path:polygon(0 0,4% 100%,8% 0,12% 100%,16% 0,20% 100%,24% 0,28% 100%,32% 0,36% 100%,40% 0,44% 100%,48% 0,52% 100%,56% 0,60% 100%,64% 0,68% 100%,72% 0,76% 100%,80% 0,84% 100%,88% 0,92% 100%,96% 0,100% 100%);}
   .roll h1{font-family:'Shippori Mincho',serif;font-size:24px;letter-spacing:.15em;margin:0 0 4px;font-weight:700;}
+  @media (max-width:520px){.roll{padding-top:44px;}}
   .roll p{margin:0;font-size:11px;letter-spacing:.1em;opacity:.6;font-family:'JetBrains Mono',monospace;}
   .tabs{display:flex;justify-content:center;gap:0;margin:26px auto 18px;max-width:900px;padding:0 12px;flex-wrap:wrap;}
   .tab{flex:1;min-width:70px;text-align:center;padding:10px 4px;font-size:12.5px;font-weight:700;letter-spacing:.05em;
@@ -94,7 +95,7 @@
   .login-card h2{font-family:'Shippori Mincho',serif;font-size:20px;margin:0 0 4px;letter-spacing:.1em;}
   .login-card p{font-size:11px;color:var(--ink-soft);margin:0 0 20px;font-family:'JetBrains Mono',monospace;}
   .login-card .field{text-align:left;}
-  .logout-btn{position:absolute;top:14px;right:14px;background:none;border:none;color:var(--paper);opacity:.6;font-size:11px;cursor:pointer;letter-spacing:.05em;font-family:'Noto Sans JP',sans-serif;}
+  .logout-btn{position:absolute;top:14px;right:14px;background:none;border:none;color:var(--paper);opacity:.85;font-size:18px;cursor:pointer;letter-spacing:.05em;font-family:'Noto Sans JP',sans-serif;text-decoration:none;padding:4px 6px;}
 </style>
 </head>
 <body>
@@ -115,13 +116,13 @@
     <h2>経営ダッシュボード</h2>
     <p>OWNER ONLY · MEDICOM</p>
     <div style="font-size:13px;color:var(--ink-soft);line-height:1.8;margin:12px 0 20px;">このアカウントには経営ダッシュボードの閲覧権限がありません。</div>
-    <button class="btn btn-ghost" onclick="doLogout()">ログアウト</button>
+    <a class="btn btn-ghost" href="./home.html" style="display:block;text-decoration:none;text-align:center;">ホームへ戻る</a>
   </div>
 </div>
 
 <div class="roll" style="position:relative;">
-  <button class="logout-btn" id="logoutBtn" style="display:none;right:90px;" onclick="location.reload()">🔄 更新</button>
-  <button class="logout-btn" id="logoutBtn2" style="display:none;" onclick="doLogout()">ログアウト</button>
+  <button class="logout-btn" id="logoutBtn" style="display:none;right:50px;" onclick="location.reload()" title="更新">🔄</button>
+  <a class="logout-btn" id="logoutBtn2" style="display:none;" href="./home.html" title="ホームへ">🏠</a>
   <h1>経 営 ダッシュボード</h1>
   <p>OWNER ONLY · MEDICOM</p>
 </div>
@@ -382,7 +383,6 @@ async function doLogin(){
   }
   btn.disabled=false; btn.textContent='ログイン';
 }
-async function doLogout(){ await sb.auth.signOut(); myStaffRow=null; showLogin(); }
 document.getElementById('loginBtn').addEventListener('click', doLogin);
 document.getElementById('login-password').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 sb.auth.onAuthStateChange((event)=>{ if(event==='SIGNED_OUT') showLogin(); });

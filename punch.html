@@ -70,8 +70,8 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
       <div class="sub" id="who"></div>
     </div>
     <div>
+      <button class="icon-btn" onclick="location.reload()" title="更新">🔄</button>
       <a class="icon-btn" href="./home.html" title="ホームへ">🏠</a>
-      <button class="icon-btn" id="logoutBtn" style="display:none;" onclick="doLogout()" title="ログアウト">🚪</button>
     </div>
   </div>
   <div class="tabs"><a href="./shift.html#shift" class="">📅 シフト</a><a href="./shift.html#req" class="" id="tabReq">✋ 希望</a><a href="./punch.html#scan" class="on">⏱ 打刻</a><a href="./attendance.html" class="" id="tabAtt" style="display:none">🕒 勤怠管理</a></div>
@@ -133,7 +133,6 @@ async function init() {
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') { me = null; _qrOn = false; clearTimeout(_qrTimer); clearInterval(_qrTick); renderLogin(); } });
 
 function renderLogin() {
-  document.getElementById('logoutBtn').style.display = 'none';
   document.getElementById('who').textContent = '';
   document.getElementById('app').innerHTML = `
     <div class="card">
@@ -164,10 +163,8 @@ async function doLogin() {
     btn.disabled = false; btn.textContent = 'ログイン';
   }
 }
-async function doLogout() { await sb.auth.signOut(); }
 
 async function afterLogin(session) {
-  document.getElementById('logoutBtn').style.display = 'inline-block';
   document.getElementById('app').innerHTML = '<div class="spinner"></div>';
   try {
     const { data, error } = await sb.from('staff').select('id,name,role,active,attendance_enabled,punch_display')
