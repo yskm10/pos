@@ -262,3 +262,5 @@ keiei-dashboard.html 自体も、ログイン後に `staff.role = 'owner'` か�
 
 - **経費帳(expense-app.html)の入場制限**(2026-10-19): ログイン後に`staff`の役割を確認し、店主・経理(active)以外は「この画面を使える権限がありません」を表示して中身を読み込まない。DB側は、`expenses`は元々「本人または`app_admins`(店主のみ登録)」だけが読み書きできる(店長・スタッフは0件)。`petty_cash`と`vendor_category_map`が「ログイン中なら誰でも」だったため、`sql/expense_access.sql`(関数`can_use_expense()`+ポリシー差し替え)で店主・経理のみに制限する。※このSQLはSupabaseのSQL Editorで実行が必要(Claude側の実行はキャンセルされた)。実行前は画面側の制限のみ有効。
 - 注意: 経理(accounting)は、`expenses`が「本人または`app_admins`」の制限のため、経費の一覧は見えない(小口現金は見える)。経理に経費も見せるなら、`expenses`のポリシー見直しが必要(未対応)。
+
+- **税理士は全件閲覧、経理は自分の登録分だけ**(2026-10-19決定): 山本税理士(staff id 9)=経費を全件「閲覧のみ」、森和希(id 3・経理)=自分が登録した経費だけ。役割は両方`accounting`のまま、`expense_viewers`テーブル(税理士のuser_idを登録)+`is_expense_viewer()`+`expenses`/領収書(storage)の閲覧ポリシーで区別する(`sql/expense_access.sql`の後半)。税理士に変更・削除はさせない。小口現金(`petty_cash`)は残高計算のため、店主・経理・税理士とも全件見える。SQL実行が必要(Claudeの実行はキャンセルされる)。
