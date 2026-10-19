@@ -135,6 +135,9 @@ let tablesLive = [], resv = [], rtMap = {}, closedMap = {}, ed = null, loadSeq =
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad2 = n => String(n).padStart(2, '0');
+const normPhone = v => String(v || '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/\D/g, '');
+const joinName = (l, f) => (l || '').trim() + ((f || '').trim() ? '　' + f.trim() : '');
+function splitName(n) { const m = String(n || '').trim().split(/[\s　]+/); return { last: m[0] || '', first: m.slice(1).join('　') }; }
 const yen = n => n == null ? '—' : '¥' + Number(n).toLocaleString('ja-JP');
 const isOwner = () => ME && ME.role === 'owner';
 const isAdmin = () => ME && ['owner', 'manager'].includes(ME.role);
@@ -387,7 +390,8 @@ function openCust(id) {
   document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
     <h2>お客様情報</h2>
     <div class="note" style="margin-bottom:10px">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits}回 ・ 無断キャンセル${s.no_show}回 ・ 当日無断キャンセル${s.same}回 ・ キャンセル${s.cancel}回</div>
-    <div class="row2"><div class="fld"><label>お名前</label><input id="cName" value="${esc(c.name)}"></div><div class="fld"><label>よみがな</label><input id="cKana" value="${esc(c.kana || '')}"></div></div>
+    <div class="row2"><div class="fld"><label>姓</label><input id="cLast" value="${esc(c.last_name != null ? c.last_name : splitName(c.name).last)}"></div><div class="fld"><label>名</label><input id="cFirst" value="${esc(c.last_name != null ? (c.first_name || '') : splitName(c.name).first)}"></div></div>
+    <div class="fld"><label>よみがな</label><input id="cKana" value="${esc(c.kana || '')}"></div>
     <div class="fld"><label>状態</label><div class="seg" id="cSt">
       <button data-v="normal" class="${c.status === 'normal' ? 'on' : ''}">通常</button><button data-v="caution" class="${c.status === 'caution' ? 'on' : ''}">要注意</button><button data-v="stopped" class="${c.status === 'stopped' ? 'on' : ''}">受付停止</button></div></div>
     <div class="fld"><label>理由(要注意・受付停止のとき。予約入力の画面に表示されます)</label><input id="cReason" value="${esc(c.status_reason || '')}" placeholder="例: 2回連続で無断キャンセル"></div>
@@ -396,12 +400,13 @@ function openCust(id) {
   document.querySelectorAll('#cSt button').forEach(b => b.onclick = () => { document.querySelectorAll('#cSt button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
 }
 async function saveCust(id) {
-  const name = document.getElementById('cName').value.trim();
-  if (!name) return toast('お名前を入力してください');
+  const last = document.getElementById('cLast').value.trim(), first = document.getElementById('cFirst').value.trim();
+  if (!last) return toast('姓を入力してください');
+  const name = joinName(last, first);
   const st = document.querySelector('#cSt button.on').dataset.v, reason = document.getElementById('cReason').value.trim();
   if (st !== 'normal' && !reason) return toast('理由を入力してください');
   const old = custList.find(x => x.id === id);
-  const patch = { name, kana: document.getElementById('cKana').value.trim() || null, notes: document.getElementById('cNotes').value.trim() || null, status: st, status_reason: st === 'normal' ? null : reason, updated_at: new Date().toISOString() };
+  const patch = { name, last_name: last, first_name: first || null, kana: document.getElementById('cKana').value.trim() || null, notes: document.getElementById('cNotes').value.trim() || null, status: st, status_reason: st === 'normal' ? null : reason, updated_at: new Date().toISOString() };
   if (old && old.status !== st) patch.status_changed_at = new Date().toISOString();
   const { error } = await sb.from('customers').update(patch).eq('id', id);
   if (error) return toast('保存に失敗しました: ' + (error.message || error));
@@ -420,9 +425,9 @@ async function openEditor(id, rowOverride) {
     if (rowOverride) { const { data } = await sb.from('reservation_tables').select('reservation_id,table_id,table_name').eq('reservation_id', id); rts = data || []; }
     else rts = rtMap[id] || [];
   }
-  ed = r ? { id: r.id, status: r.status, phone: r.guest_phone || '', name: r.guest_name, date: r.business_date, start: r.start_min, end: r.end_min, endTouched: true, party: r.party_size,
+  ed = r ? { id: r.id, status: r.status, phone: normPhone(r.guest_phone), last: r.last_name != null ? r.last_name : splitName(r.guest_name).last, first: r.last_name != null ? (r.first_name || '') : splitName(r.guest_name).first, date: r.business_date, start: r.start_min, end: r.end_min, endTouched: true, party: r.party_size,
       kind: r.kind, course: r.course_name || '', amount: r.amount, channel: r.channel, tables: new Set(rts.map(x => x.table_id)), snap: rts, memo: r.memo || '', row: r }
-    : { id: null, status: 'reserved', phone: '', name: '', date: curDate, start: 1080, end: 1080 + cfg.normal_minutes, endTouched: false, party: 2, kind: 'normal', course: '', amount: null, channel: 'phone', tables: new Set(), snap: [], memo: '', row: null };
+    : { id: null, status: 'reserved', phone: '', last: '', first: '', date: curDate, start: 1080, end: 1080 + cfg.normal_minutes, endTouched: false, party: 2, kind: 'normal', course: '', amount: null, channel: 'phone', tables: new Set(), snap: [], memo: '', row: null };
   ed.lookupSeq = 0; ed.info = null;
   if (!dayCache[ed.date]) { try { dayCache[ed.date] = await fetchDay(ed.date); } catch (e) {} }
   renderSheet();
@@ -442,8 +447,8 @@ function renderSheet() {
       : `<div class="note">${FEE_ST[r.fee_status]} ${r.fee_amount != null ? yen(r.fee_amount) : ''}(変更は店主・店長のみ)</div>`}</div>` : '';
   document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
     <h2>${isNew ? '予約を入れる' : '予約の確認・変更'}</h2>
-    <div class="fld"><label>電話番号(入力すると、過去の来店・キャンセルの記録が出ます)</label><input id="fPhone" type="tel" inputmode="tel" value="${esc(ed.phone)}" placeholder="090-0000-0000"><div id="lookupBox"></div></div>
-    <div class="fld"><label>お名前</label><input id="fName" value="${esc(ed.name)}" placeholder="例: 田中"></div>
+    <div class="fld"><label>電話番号(入力すると、過去の来店・キャンセルの記録が出ます)</label><input id="fPhone" type="tel" inputmode="numeric" value="${esc(ed.phone)}" placeholder="09000000000(ハイフンなし)"><div id="lookupBox"></div></div>
+    <div class="row2"><div class="fld"><label>姓</label><input id="fLast" value="${esc(ed.last)}" placeholder="例: 田中" autocomplete="off"></div><div class="fld"><label>名(わからなければ空欄で可)</label><input id="fFirst" value="${esc(ed.first)}" placeholder="例: 太郎" autocomplete="off"></div></div>
     <div class="row2"><div class="fld"><label>日付</label><input type="date" id="fDate" value="${ed.date}"></div>
       <div class="fld"><label>開始</label><input type="time" id="fStart" value="${toInput(ed.start)}" step="900"></div>
       <div class="fld"><label>終了</label><input type="time" id="fEnd" value="${toInput(ed.end)}" step="900"></div></div>
@@ -460,8 +465,9 @@ function renderSheet() {
 }
 function wireSheet() {
   const $ = id => document.getElementById(id);
-  $('fPhone').oninput = e => { ed.phone = e.target.value; clearTimeout(ed.lt); ed.lt = setTimeout(doLookup, 350); };
-  $('fName').oninput = e => { ed.name = e.target.value; };
+  $('fPhone').oninput = e => { const v = normPhone(e.target.value); if (v !== e.target.value) e.target.value = v; ed.phone = v; clearTimeout(ed.lt); ed.lt = setTimeout(doLookup, 350); };
+  $('fLast').oninput = e => { ed.last = e.target.value; };
+  $('fFirst').oninput = e => { ed.first = e.target.value; };
   $('fMemo').oninput = e => { ed.memo = e.target.value; };
   $('fParty').oninput = e => { ed.party = Math.max(1, parseInt(e.target.value) || 1); renderChips(); };
   $('fDate').onchange = async e => { ed.date = e.target.value; if (ed.date && !dayCache[ed.date]) { try { dayCache[ed.date] = await fetchDay(ed.date); } catch (x) {} } renderChips(); };
@@ -531,18 +537,18 @@ function autoPick() {
 // 電話番号 → 過去の記録
 async function doLookup() {
   const box = document.getElementById('lookupBox'); if (!box || !ed) return;
-  const digits = ed.phone.replace(/\D/g, '');
+  const digits = normPhone(ed.phone);
   if (digits.length < 10) { box.innerHTML = ''; ed.info = null; return; }
   const seq = ++ed.lookupSeq;
-  const { data, error } = await sb.rpc('lookup_customer', { p_phone: ed.phone });
+  const { data, error } = await sb.rpc('lookup_customer', { p_phone: digits });
   if (!ed || seq !== ed.lookupSeq) return;
   const b = document.getElementById('lookupBox'); if (!b) return;
   if (error) { b.innerHTML = ''; return; }
   const i = data || { found: false }; ed.info = i;
   if (!i.found) { b.innerHTML = '<div class="lookup">初めてのお客様です(この電話番号の記録なし)</div>'; return; }
-  if (!ed.name.trim()) { ed.name = i.name || ''; const n = document.getElementById('fName'); if (n) n.value = ed.name; }
+  if (!ed.last.trim()) { const sp = i.last_name != null ? { last: i.last_name, first: i.first_name || '' } : splitName(i.name); ed.last = sp.last; ed.first = sp.first; const a = document.getElementById('fLast'), b2 = document.getElementById('fFirst'); if (a) a.value = ed.last; if (b2) b2.value = ed.first; }
   const bad = (i.no_show || 0) + (i.same_day_no_show || 0);
-  const other = (i.names || []).filter(n => n && n !== ed.name.trim());
+  const other = (i.names || []).filter(n => n && n !== joinName(ed.last, ed.first));
   let cls = 'ok', head = `${esc(i.name)} 様 ・ 来店${i.visits || 0}回`;
   if (i.status === 'stopped') { cls = 'stop'; head = `🚫 受付停止中のお客様です${i.reason ? '(' + esc(i.reason) + ')' : ''}。${isOwner() ? '' : '店主に確認してください'}`; }
   else if (i.status === 'caution' || bad > 0) cls = 'warn';
@@ -552,12 +558,13 @@ async function doLookup() {
 
 // 保存・状態・削除
 function buildPayload() {
-  return { guest_name: ed.name.trim(), guest_phone: ed.phone.trim(), business_date: ed.date, start_min: ed.start, end_min: ed.end, party_size: ed.party, kind: ed.kind,
+  return { guest_name: joinName(ed.last, ed.first), last_name: ed.last.trim(), first_name: ed.first.trim(), guest_phone: normPhone(ed.phone), business_date: ed.date, start_min: ed.start, end_min: ed.end, party_size: ed.party, kind: ed.kind,
     course_name: ed.kind === 'normal' ? '' : ed.course.trim(), amount: ed.kind === 'normal' ? null : ed.amount, all_tables: ed.kind === 'private', channel: ed.channel, memo: ed.memo.trim(),
     tables: ed.kind === 'private' ? [] : [...ed.tables].map(id => { const t = tablesLive.find(x => x.id === id); const s = (ed.snap || []).find(x => x.table_id === id); return { id, name: t ? t.name : (s && s.table_name) || '' }; }) };
 }
 async function saveRes(force, override) {
-  if (!ed.name.trim()) return toast('お名前を入力してください');
+  if (!ed.last.trim()) return toast('姓を入力してください');
+  if (ed.phone && ed.phone.length < 10) return toast('電話番号は、ハイフンなしの10〜11桁で入力してください');
   if (!ed.date || ed.end <= ed.start) return toast('日付と時間を確認してください');
   if (ed.kind !== 'normal' && ed.amount == null && !confirm('金額が未入力です。キャンセル料を自動計算できませんが、保存しますか?')) return;
   const { data, error } = await sb.rpc('save_reservation', { p_id: ed.id, p: buildPayload(), p_force: !!force, p_override_reason: override || null });
