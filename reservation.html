@@ -127,11 +127,12 @@ const KIND = { normal: '席のみ', course: 'コース', private: '貸切' };
 const STATUS = { reserved: '予約中', seated: '来店済', done: '完了', cancelled: 'キャンセル', no_show: '無断キャンセル', same_day_no_show: '当日無断キャンセル' };
 const DEAD = ['cancelled', 'no_show', 'same_day_no_show'];
 const FEE_ST = { none: 'なし', unbilled: '未請求', billed: '請求済', paid: '入金済', waived: '免除' };
+const ROLE_JP = { owner: '店主', manager: '店長', staff: 'スタッフ' };
 const CHANNEL = { phone: '電話', line: 'LINE', walkin: '来店', other: 'その他' };
 
 let ME = null, cfg = { normal_minutes: 120, course_minutes: 150, private_minutes: 180, timeline_start_min: 960, timeline_end_min: 1560 };
 let view = 'day', curDate = null, month = null;
-let tablesLive = [], resv = [], rtMap = {}, closedMap = {}, ed = null, loadSeq = 0, dayCache = {};
+let staffAll = [], tablesLive = [], resv = [], rtMap = {}, closedMap = {}, ed = null, loadSeq = 0, dayCache = {};
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad2 = n => String(n).padStart(2, '0');
@@ -192,6 +193,7 @@ async function init() {
   parseHash();
   curDate = bizToday();
   month = { y: +curDate.slice(0, 4), m: +curDate.slice(5, 7) };
+  try { const { data } = await sb.from('staff').select('id,name,role,active').order('id'); staffAll = data || []; } catch (e) {}
   try { const { data } = await sb.from('reservation_config').select('*').eq('id', 1).maybeSingle(); if (data) cfg = data; } catch (e) {}
   await reloadAll();
   setInterval(() => { if (!ed && document.visibilityState === 'visible' && view === 'day') loadView(true); }, 60000);
@@ -276,7 +278,7 @@ function resRow(r) {
   return `<div class="res ${dead ? 'dead' : ''}" onclick="openEditor(${r.id})">
     <div class="tm">${fmtMin(r.start_min)}<small>〜${fmtMin(r.end_min)}</small></div>
     <div class="bd"><div><span class="nm">${esc(r.guest_name)}</span> 様 ${r.party_size}名 ${tags}</div>
-      <div class="sub">${esc(seatNames(r))} ・ ${CHANNEL[r.channel] || ''}${r.guest_phone ? ' ・ ' + esc(r.guest_phone) : ''}</div>
+      <div class="sub">${esc(seatNames(r))} ・ ${CHANNEL[r.channel] || ''}${r.received_by_staff_id ? ' ・ 受付: ' + esc(staffName(r.received_by_staff_id).split(/[\s　]/)[0]) : ''}${r.guest_phone ? ' ・ ' + esc(r.guest_phone) : ''}</div>
       ${r.memo ? `<div class="sub">📝 ${esc(r.memo)}</div>` : ''}</div></div>`;
 }
 function renderTimeline() {
@@ -415,6 +417,8 @@ async function saveCust(id) {
 
 // ---- 予約の入力・編集 ----
 function closeSheet() { ed = null; document.getElementById('sheetHost').innerHTML = ''; }
+const receivers = () => staffAll.filter(x => x.active && ['owner', 'manager', 'staff'].includes(x.role));
+const staffName = id => { const x = staffAll.find(y => y.id === id); return x ? x.name : ''; };
 function defaultMinutes(kind) { return kind === 'private' ? cfg.private_minutes : kind === 'course' ? cfg.course_minutes : cfg.normal_minutes; }
 async function openEditor(id, rowOverride) {
   let r = null, rts = [];
@@ -426,8 +430,8 @@ async function openEditor(id, rowOverride) {
     else rts = rtMap[id] || [];
   }
   ed = r ? { id: r.id, status: r.status, phone: normPhone(r.guest_phone), last: r.last_name != null ? r.last_name : splitName(r.guest_name).last, first: r.last_name != null ? (r.first_name || '') : splitName(r.guest_name).first, date: r.business_date, start: r.start_min, end: r.end_min, endTouched: true, party: r.party_size,
-      kind: r.kind, course: r.course_name || '', amount: r.amount, channel: r.channel, tables: new Set(rts.map(x => x.table_id)), snap: rts, memo: r.memo || '', row: r }
-    : { id: null, status: 'reserved', phone: '', last: '', first: '', date: curDate, start: 1080, end: 1080 + cfg.normal_minutes, endTouched: false, party: 2, kind: 'normal', course: '', amount: null, channel: 'phone', tables: new Set(), snap: [], memo: '', row: null };
+      kind: r.kind, course: r.course_name || '', amount: r.amount, channel: r.channel, tables: new Set(rts.map(x => x.table_id)), snap: rts, memo: r.memo || '', receiver: r.received_by_staff_id || null, row: r }
+    : { id: null, status: 'reserved', phone: '', last: '', first: '', date: curDate, start: 1080, end: 1080 + cfg.normal_minutes, endTouched: false, party: 2, kind: 'normal', course: '', amount: null, channel: 'phone', tables: new Set(), snap: [], memo: '', receiver: (receivers().find(x => ME && x.id === ME.id) || {}).id || null, row: null };
   ed.lookupSeq = 0; ed.info = null;
   if (!dayCache[ed.date]) { try { dayCache[ed.date] = await fetchDay(ed.date); } catch (e) {} }
   renderSheet();
@@ -456,6 +460,7 @@ function renderSheet() {
     <div class="fld"><label>種類</label><div class="seg" id="kindBtns">${Object.entries(KIND).map(([k, v]) => `<button data-k="${k}" class="${ed.kind === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
     <div id="courseBox"></div>
     <div class="fld"><label>受付経路</label><div class="seg" id="chBtns">${Object.entries(CHANNEL).map(([k, v]) => `<button data-c="${k}" class="${ed.channel === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+    <div class="fld"><label>受付者(電話・LINEを受けた人)</label><select id="fRecv"><option value="">選んでください</option>${receivers().map(x => `<option value="${x.id}" ${ed.receiver === x.id ? 'selected' : ''}>${esc(x.name)}(${ROLE_JP[x.role] || ''})</option>`).join('')}${ed.receiver && !receivers().some(x => x.id === ed.receiver) ? `<option value="${ed.receiver}" selected>${esc(staffName(ed.receiver))}</option>` : ''}</select></div>
     <div class="fld"><label>席 <button class="chip" style="padding:4px 8px;margin-left:6px" onclick="autoPick()">空き席を自動で選ぶ</button></label><div class="chips" id="chips"></div><div class="cap" id="cap"></div></div>
     <div class="fld"><label>メモ(アレルギー・記念日・要望など)</label><textarea id="fMemo" rows="2">${esc(ed.memo)}</textarea></div>
     ${statusBtns}${feeBox}
@@ -468,6 +473,7 @@ function wireSheet() {
   $('fPhone').oninput = e => { const v = normPhone(e.target.value); if (v !== e.target.value) e.target.value = v; ed.phone = v; clearTimeout(ed.lt); ed.lt = setTimeout(doLookup, 350); };
   $('fLast').oninput = e => { ed.last = e.target.value; };
   $('fFirst').oninput = e => { ed.first = e.target.value; };
+  $('fRecv').onchange = e => { ed.receiver = e.target.value ? parseInt(e.target.value) : null; };
   $('fMemo').oninput = e => { ed.memo = e.target.value; };
   $('fParty').oninput = e => { ed.party = Math.max(1, parseInt(e.target.value) || 1); renderChips(); };
   $('fDate').onchange = async e => { ed.date = e.target.value; if (ed.date && !dayCache[ed.date]) { try { dayCache[ed.date] = await fetchDay(ed.date); } catch (x) {} } renderChips(); };
@@ -564,12 +570,17 @@ function buildPayload() {
 }
 async function saveRes(force, override) {
   if (!ed.last.trim()) return toast('姓を入力してください');
+  if (ed.id == null && !ed.receiver) return toast('受付者を選んでください');
   if (ed.phone && ed.phone.length < 10) return toast('電話番号は、ハイフンなしの10〜11桁で入力してください');
   if (!ed.date || ed.end <= ed.start) return toast('日付と時間を確認してください');
   if (ed.kind !== 'normal' && ed.amount == null && !confirm('金額が未入力です。キャンセル料を自動計算できませんが、保存しますか?')) return;
   const { data, error } = await sb.rpc('save_reservation', { p_id: ed.id, p: buildPayload(), p_force: !!force, p_override_reason: override || null });
   if (error) return toast('保存に失敗しました: ' + (error.message || error));
-  if (data && data.ok) { closeSheet(); toast('保存しました'); curDate = ed ? curDate : curDate; await loadView(true); return; }
+  if (data && data.ok) {
+    let warn = '';
+    if (ed.receiver && data.id) { try { const r2 = await sb.rpc('set_reservation_receiver', { p_id: data.id, p_staff_id: ed.receiver }); if (r2.error || !(r2.data && r2.data.ok)) warn = '(受付者は記録できませんでした)'; } catch (e) { warn = '(受付者は記録できませんでした)'; } }
+    closeSheet(); toast('保存しました' + warn); await loadView(true); return;
+  }
   const code = data && data.code;
   if (code === 'conflict') {
     const c = (data.conflicts || []).map(x => `${x.guest_name}様 ${fmtMin(x.start_min)}〜${fmtMin(x.end_min)}`).join('、');
