@@ -449,7 +449,42 @@ async function saveCust(id) {
 }
 
 // ---- 予約の入力・編集 ----
-function closeSheet() { ed = null; document.getElementById('sheetHost').innerHTML = ''; }
+// ---- 画面内テンキー(iPadは inputmode=numeric でも記号キーボードになるため。タッチ端末のみ) ----
+const COARSE = window.matchMedia && matchMedia('(pointer:coarse)').matches;
+let npEl = null;
+function npClose() { const n = document.getElementById('numpad'); if (n) n.remove(); const sh = document.querySelector('#sheetHost .sheet'); if (sh) sh.style.paddingBottom = ''; npEl = null; }
+function npOpen(el) {
+  npEl = el;
+  let n = document.getElementById('numpad');
+  if (!n) {
+    n = document.createElement('div'); n.id = 'numpad';
+    n.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:70;background:#12141f;border-top:1px solid #2e3250;padding:8px 10px 14px;display:flex;justify-content:center;';
+    const k = (t, a, st) => `<button type="button" data-k="${a}" style="height:58px;font-size:24px;font-weight:700;border-radius:10px;border:1px solid #2e3250;background:${st || '#23273a'};color:#e8eaf0">${t}</button>`;
+    n.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;max-width:520px">
+      ${k(1, 1)}${k(2, 2)}${k(3, 3)}${k('⌫', 'bs', '#3a2d33')}
+      ${k(4, 4)}${k(5, 5)}${k(6, 6)}${k('クリア', 'clr', '#3a2d33')}
+      ${k(7, 7)}${k(8, 8)}${k(9, 9)}${k('完了', 'done', '#2f5fd0')}${k(0, 0)}</div>`;
+    n.querySelector('[data-k="0"]').style.gridColumn = 'span 3'; n.querySelector('[data-k="done"]').style.gridRow = 'span 2';
+    n.addEventListener('pointerdown', e => e.preventDefault()); // 入力欄のフォーカスを外さない
+    n.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b || !npEl) return;
+      const a = b.dataset.k; let v = String(npEl.value || '');
+      if (a === 'done') { const x = npEl; npClose(); x.blur(); return; }
+      if (a === 'bs') v = v.slice(0, -1); else if (a === 'clr') v = ''; else v += a;
+      if (npEl.id === 'fPhone') v = v.slice(0, 11);
+      npEl.value = v; npEl.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    document.body.appendChild(n);
+  }
+  const sh = document.querySelector('#sheetHost .sheet');
+  if (sh) { sh.style.paddingBottom = '300px'; setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); }
+}
+if (COARSE) document.addEventListener('focusin', e => {
+  const t = e.target;
+  if (t && t.dataset && t.dataset.numpad) { t.setAttribute('inputmode', 'none'); npOpen(t); }
+  else if (npEl && !(t.closest && t.closest('#numpad'))) npClose();
+});
+function closeSheet() { npClose(); ed = null; document.getElementById('sheetHost').innerHTML = ''; }
 const receivers = () => staffAll.filter(x => x.active && ['owner', 'manager', 'staff'].includes(x.role));
 const staffName = id => { const x = staffAll.find(y => y.id === id); return x ? x.name : ''; };
 function defaultMinutes(kind) { return kind === 'private' ? cfg.private_minutes : kind === 'course' ? cfg.course_minutes : cfg.normal_minutes; }
@@ -484,12 +519,12 @@ function renderSheet() {
       : `<div class="note">${FEE_ST[r.fee_status]} ${r.fee_amount != null ? yen(r.fee_amount) : ''}(変更は店主・店長のみ)</div>`}</div>` : '';
   document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
     <h2>${isNew ? '予約を入れる' : '予約の確認・変更'}</h2>
-    <div class="fld"><label>電話番号(入力すると、過去の来店・キャンセルの記録が出ます)</label><input id="fPhone" type="tel" inputmode="numeric" value="${esc(ed.phone)}" placeholder="09000000000(ハイフンなし)"><div id="lookupBox"></div></div>
+    <div class="fld"><label>電話番号(入力すると、過去の来店・キャンセルの記録が出ます)</label><input id="fPhone" type="tel" inputmode="${COARSE ? 'none' : 'numeric'}" data-numpad="1" value="${esc(ed.phone)}" placeholder="09000000000(ハイフンなし)"><div id="lookupBox"></div></div>
     <div class="row2"><div class="fld"><label>姓</label><input id="fLast" value="${esc(ed.last)}" placeholder="例: 田中" autocomplete="off"></div><div class="fld"><label>名(わからなければ空欄で可)</label><input id="fFirst" value="${esc(ed.first)}" placeholder="例: 太郎" autocomplete="off"></div></div>
     <div class="row2"><div class="fld"><label>日付</label><input type="date" id="fDate" value="${ed.date}"></div>
       <div class="fld"><label>開始</label><input type="time" id="fStart" value="${toInput(ed.start)}" step="900"></div>
       <div class="fld"><label>終了</label><input type="time" id="fEnd" value="${toInput(ed.end)}" step="900"></div></div>
-    <div class="fld"><label>人数</label><div class="stepper"><button onclick="stepParty(-1)">−</button><input id="fParty" type="number" inputmode="numeric" value="${ed.party}" min="1"><button onclick="stepParty(1)">＋</button></div></div>
+    <div class="fld"><label>人数</label><div class="stepper"><button onclick="stepParty(-1)">−</button><input id="fParty" type="number" inputmode="${COARSE ? 'none' : 'numeric'}" data-numpad="1" value="${ed.party}" min="1"><button onclick="stepParty(1)">＋</button></div></div>
     <div class="fld"><label>種類</label><div class="seg" id="kindBtns">${Object.entries(KIND).map(([k, v]) => `<button data-k="${k}" class="${ed.kind === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
     <div id="courseBox"></div>
     <div class="fld"><label>受付経路</label><div class="seg" id="chBtns">${Object.entries(CHANNEL).map(([k, v]) => `<button data-c="${k}" class="${ed.channel === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
@@ -525,7 +560,7 @@ function wireSheet() {
 function renderCourseBox() {
   const el = document.getElementById('courseBox');
   el.innerHTML = ed.kind === 'normal' ? '<div class="note" style="margin:-4px 0 10px">席のみの予約は、キャンセル料はかかりません</div>' : `<div class="row2"><div class="fld"><label>${ed.kind === 'private' ? '貸切の内容' : 'コース名'}</label><input id="fCourse" value="${esc(ed.course)}" placeholder="${ed.kind === 'private' ? '例: 会社の送別会' : '例: 季節の会席'}"></div>
-    <div class="fld"><label>金額(合計・税込。キャンセル料の計算に使います)</label><input id="fAmount" type="number" inputmode="numeric" value="${ed.amount == null ? '' : ed.amount}"></div></div>
+    <div class="fld"><label>金額(合計・税込。キャンセル料の計算に使います)</label><input id="fAmount" type="number" inputmode="${COARSE ? 'none' : 'numeric'}" data-numpad="1" value="${ed.amount == null ? '' : ed.amount}"></div></div>
     <div class="note" style="margin:-6px 0 10px">${ed.kind === 'private' ? 'キャンセル料: 3日前から100%' : 'キャンセル料: 前日50% ・ 当日100%'}</div>`;
   const c = document.getElementById('fCourse'), a = document.getElementById('fAmount');
   if (c) c.oninput = e => { ed.course = e.target.value; };
