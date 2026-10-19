@@ -182,7 +182,7 @@ function toast(msg) {
 }
 
 // ---- 起動 ----
-function parseHash() { const h = location.hash.replace('#', ''); view = ['day', 'month', 'fee', 'cust'].includes(h) ? h : 'day'; if (view === 'cust' && !isOwner()) view = 'day'; if (view === 'fee' && !isAdmin()) view = 'day'; }
+function parseHash() { const h = location.hash.replace('#', ''); view = ['day', 'month', 'fee', 'cust', 'set'].includes(h) ? h : 'day'; if ((view === 'cust' || view === 'set') && !isOwner()) view = 'day'; if (view === 'fee' && !isAdmin()) view = 'day'; }
 async function init() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return showMsg('ログインが必要です。<br>ホーム画面でログインしてから開いてください。');
@@ -205,7 +205,7 @@ window.addEventListener('hashchange', () => { parseHash(); reloadAll(); });
 function showMsg(html) { document.getElementById('app').innerHTML = `<div class="card"><div class="note">${html}</div></div>`; }
 function renderTabs() {
   const t = (id, label) => `<a href="#${id}" class="${view === id ? 'on' : ''}">${label}</a>`;
-  document.getElementById('tabs').innerHTML = t('day', '📋 日別') + t('month', '📅 月') + (isAdmin() ? t('fee', '💴 キャンセル料') : '') + (isOwner() ? t('cust', '👤 顧客') : '');
+  document.getElementById('tabs').innerHTML = t('day', '📋 日別') + t('month', '📅 月') + (isAdmin() ? t('fee', '💴 キャンセル料') : '') + (isOwner() ? t('cust', '👤 顧客') + t('set', '⚙️ 設定') : '');
 }
 async function reloadAll() { renderTabs(); await loadView(false); }
 async function loadView(silent) {
@@ -216,6 +216,7 @@ async function loadView(silent) {
     else if (view === 'month') await loadMonth(my);
     else if (view === 'fee') await loadFee(my);
     else if (view === 'cust') await loadCust(my);
+    else if (view === 'set') await loadSettings(my);
   } catch (e) { if (my === loadSeq) showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
 }
 
@@ -596,6 +597,45 @@ async function doLookup() {
 }
 
 // 保存・状態・削除
+// ---- 設定(店主のみ):キャンセル料率・予約の標準時間・タイムラインの表示範囲 ----
+const CFG_FIELDS = [
+  ['course_day_before_pct', 'コース:前日のキャンセル料(%)', 0, 100],
+  ['course_same_day_pct', 'コース:当日・無断のキャンセル料(%)', 0, 100],
+  ['private_days', '貸切:キャンセル料がかかる日数(◯日前から)', 0, 60],
+  ['private_pct', '貸切:キャンセル料(%)', 0, 100],
+  ['normal_minutes', '席のみ:標準の利用時間(分)', 15, 720],
+  ['course_minutes', 'コース:標準の利用時間(分)', 15, 720],
+  ['private_minutes', '貸切:標準の利用時間(分)', 15, 720]];
+async function loadSettings(my) {
+  const { data, error } = await sb.from('reservation_config').select('*').eq('id', 1).maybeSingle();
+  if (error) throw error;
+  if (my !== loadSeq) return;
+  if (data) cfg = data;
+  const hr = m => Math.round(m / 60);
+  document.getElementById('app').innerHTML = `<div class="card"><h2 style="margin:0 0 4px;font-size:16px">⚙️ 予約の設定</h2>
+    <div class="note" style="margin-bottom:10px">キャンセル料の自動計算と、予約を入れるときの標準の時間に使われます。変更しても、すでに計算済みのキャンセル料は変わりません。</div>
+    ${CFG_FIELDS.map(([k, l, a, b]) => `<div class="fld"><label>${l}</label><input type="number" inputmode="numeric" id="cf_${k}" value="${cfg[k]}" min="${a}" max="${b}"></div>`).join('')}
+    <div class="row2"><div class="fld"><label>タイムライン開始(時)</label><input type="number" inputmode="numeric" id="cf_ts" value="${hr(cfg.timeline_start_min)}" min="0" max="30"></div>
+    <div class="fld"><label>タイムライン終了(時・25=翌1時)</label><input type="number" inputmode="numeric" id="cf_te" value="${hr(cfg.timeline_end_min)}" min="1" max="31"></div></div>
+    <button class="btn-save" style="width:100%;padding:12px;margin-top:6px" onclick="saveSettings()">設定を保存</button>
+    <div class="note" style="margin-top:10px">席のみは「キャンセル料なし」の規定です(変更不可)。</div></div>`;
+}
+async function saveSettings() {
+  const v = {};
+  for (const [k, l, a, b] of CFG_FIELDS) {
+    const raw = document.getElementById('cf_' + k).value, n = Number(raw);
+    if (raw === '' || !Number.isInteger(n) || n < a || n > b) return toast(`「${l}」は${a}〜${b}の整数で入力してください`);
+    v[k] = n;
+  }
+  const ts = Number(document.getElementById('cf_ts').value), te = Number(document.getElementById('cf_te').value);
+  if (!Number.isInteger(ts) || !Number.isInteger(te) || ts < 0 || te > 31 || te <= ts) return toast('タイムラインの開始・終了時刻を確認してください');
+  v.timeline_start_min = ts * 60; v.timeline_end_min = te * 60;
+  const { data, error } = await sb.from('reservation_config').update(v).eq('id', 1).select();
+  if (error) return toast('保存に失敗しました: ' + (error.message || error));
+  if (!data || !data.length) return toast('保存できませんでした(店主のみ変更できます)');
+  cfg = data[0]; toast('設定を保存しました');
+}
+
 // ---- LINE用の予約確認文 ----
 function buildLineText() {
   const c = Object.assign({ course_day_before_pct: 50, course_same_day_pct: 100, private_days: 3, private_pct: 100 }, cfg);
