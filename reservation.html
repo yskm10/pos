@@ -132,6 +132,7 @@ const CHANNEL = { phone: '電話', line: 'LINE', walkin: '来店', other: 'そ�
 
 let ME = null, cfg = { normal_minutes: 120, course_minutes: 150, private_minutes: 180, timeline_start_min: 960, timeline_end_min: 1560 };
 let view = 'day', curDate = null, month = null;
+let mgrCanEditClosed = false, closedEdit = false, monthClosed = {}, bulkDowVal = 0;
 let staffAll = [], tablesLive = [], resv = [], rtMap = {}, closedMap = {}, ed = null, loadSeq = 0, dayCache = {};
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -142,6 +143,7 @@ function splitName(n) { const m = String(n || '').trim().split(/[\s　]+/); retu
 const yen = n => n == null ? '—' : '¥' + Number(n).toLocaleString('ja-JP');
 const isOwner = () => ME && ME.role === 'owner';
 const isAdmin = () => ME && ['owner', 'manager'].includes(ME.role);
+const canEditClosed = () => !!ME && (ME.role === 'owner' || (ME.role === 'manager' && mgrCanEditClosed));
 
 // ---- 日付・時刻(日本時間。営業日は7:00区切り)----
 const JST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -194,6 +196,7 @@ async function init() {
   curDate = bizToday();
   month = { y: +curDate.slice(0, 4), m: +curDate.slice(5, 7) };
   try { const { data } = await sb.from('staff').select('id,name,role,active').order('id'); staffAll = data || []; } catch (e) {}
+  try { const { data } = await sb.from('shift_config').select('manager_can_edit_closed').eq('id', 1).maybeSingle(); mgrCanEditClosed = !!(data && data.manager_can_edit_closed); } catch (e) {}
   try { const { data } = await sb.from('reservation_config').select('*').eq('id', 1).maybeSingle(); if (data) cfg = data; } catch (e) {}
   await reloadAll();
   setInterval(() => { if (!ed && document.visibilityState === 'visible' && view === 'day') loadView(true); }, 60000);
@@ -263,7 +266,8 @@ function renderDay() {
     <input type="date" id="dpick" value="${curDate}" onchange="pickDay(this.value)" style="width:0;height:0;opacity:0;position:absolute;">
     <button class="today" onclick="document.getElementById('dpick').showPicker ? document.getElementById('dpick').showPicker() : document.getElementById('dpick').click()">📆</button>
   </div>`;
-  if (cl) html += `<div class="card" style="background:#2a1a1a;border-color:#5a2323;"><span class="tag closed">定休日</span> ${esc(cl.note || '')}<div class="note">定休日にも予約は入れられます</div></div>`;
+  if (cl) html += `<div class="card" style="background:#2a1a1a;border-color:#5a2323;"><span class="tag closed">定休日</span> ${esc(cl.note || '')}<div class="note">定休日にも予約は入れられます(シフト画面にも反映されます)</div>${canEditClosed() ? `<button class="today" style="margin-top:8px" onclick="setClosed('${curDate}',false)">定休日を解除</button>` : ''}</div>`;
+  else if (canEditClosed()) html += `<div style="text-align:right;margin:-4px 0 8px"><button class="today" onclick="setClosed('${curDate}',true)">この日を定休日にする</button></div>`;
   html += `<div class="sum"><div class="box"><div class="v">${live.length}</div><div class="k">予約(組)</div></div><div class="box"><div class="v">${people}</div><div class="k">人数</div></div><div class="box"><div class="v">${live.filter(r => r.kind !== 'normal').length}</div><div class="k">コース・貸切</div></div></div>`;
   html += `<button class="addbtn" onclick="openEditor(null)">＋ 予約を入れる</button>`;
   html += renderTimeline();
@@ -316,19 +320,47 @@ async function loadMonth(my) {
   if (r.error) throw r.error;
   if (my !== loadSeq) return;
   const by = {}; (r.data || []).filter(x => !DEAD.includes(x.status)).forEach(x => { const o = by[x.business_date] = by[x.business_date] || { c: 0, p: 0, sp: 0 }; o.c++; o.p += x.party_size; if (x.kind !== 'normal') o.sp++; });
-  const cl = {}; ((c && c.data) || []).forEach(x => (cl[x.date] = x));
+  const cl = {}; ((c && c.data) || []).forEach(x => (cl[x.date] = x)); monthClosed = cl;
   const lead = dow(first), today = bizToday();
-  let html = `<div class="datenav"><button onclick="moveMonth(-1)">◀</button><div class="label">${month.y}年${month.m}月</div><button onclick="moveMonth(1)">▶</button></div><div class="cal">`;
+  let html = `<div class="datenav"><button onclick="moveMonth(-1)">◀</button><div class="label">${month.y}年${month.m}月</div><button onclick="moveMonth(1)">▶</button></div>`;
+  if (canEditClosed()) html += `<div class="card" style="padding:10px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <button class="today" onclick="toggleClosedEdit()" style="${closedEdit ? 'background:#5a2323;color:#ffb3b3' : ''}">${closedEdit ? '✔ 定休日の編集中(タップで終了)' : '定休日を編集する'}</button></div>
+    ${closedEdit ? `<div class="note" style="margin-top:6px">日付をタップすると、定休日のオン・オフを切り替えます。</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px">毎週
+    <select id="bulkDow" onchange="bulkDowVal=+this.value">${'日月火水木金土'.split('').map((w, i) => `<option value="${i}" ${i === bulkDowVal ? 'selected' : ''}>${w}曜</option>`).join('')}</select>
+    <button class="today" onclick="bulkClosed(true)">この月を一括で定休日に</button><button class="today" onclick="bulkClosed(false)">一括で解除</button></div>` : ''}</div>`;
+  html += '<div class="cal">';
   '日月火水木金土'.split('').forEach((w, i) => (html += `<div class="dh ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`));
   for (let i = 0; i < lead; i++) html += '<div class="cell out"></div>';
   for (let d = 1; d <= n; d++) {
     const ds = `${month.y}-${pad2(month.m)}-${pad2(d)}`, o = by[ds], w = dow(ds), h = holidayName(ds);
-    html += `<div class="cell ${w === 0 ? 'sun' : w === 6 ? 'sat' : ''} ${h ? 'hol' : ''} ${ds === today ? 'today' : ''} ${cl[ds] ? 'closed' : ''}" onclick="gotoDay('${ds}')">
+    html += `<div class="cell ${w === 0 ? 'sun' : w === 6 ? 'sat' : ''} ${h ? 'hol' : ''} ${ds === today ? 'today' : ''} ${cl[ds] ? 'closed' : ''}" onclick="${closedEdit ? `toggleClosedDay('${ds}')` : `gotoDay('${ds}')`}">
       <div class="n">${d}</div>${cl[ds] ? '<span class="tag closed" style="margin:0">定休</span>' : ''}
       ${o ? `<div class="c">${o.c}組</div><div class="p">${o.p}名${o.sp ? ' ・特' + o.sp : ''}</div>` : ''}</div>`;
   }
-  html += '</div><div class="note" style="margin-top:8px">日付をタップすると、その日の予約を開きます。「特」はコース・貸切の件数です。</div>';
+  html += '</div><div class="note" style="margin-top:8px">日付をタップすると、その日の予約を開きます。「特」はコース・貸切の件数です。定休日はシフト画面と共通です。</div>';
   document.getElementById('app').innerHTML = html;
+}
+// ---- 定休日(shop_closed_days はシフトと共通) ----
+function toggleClosedEdit() { closedEdit = !closedEdit; loadView(false); }
+async function toggleClosedDay(d) { await setClosed(d, !monthClosed[d], true); }
+async function setClosed(d, on, stay) {
+  if (!canEditClosed()) return;
+  try {
+    if (on) { const { error } = await sb.from('shop_closed_days').upsert({ date: d, note: (monthClosed[d] && monthClosed[d].note) || null }, { onConflict: 'date' }); if (error) throw error; }
+    else { const { error } = await sb.from('shop_closed_days').delete().eq('date', d); if (error) throw error; }
+    toast(on ? '定休日にしました' : '定休日を解除しました'); loadView(false);
+  } catch (e) { toast('保存に失敗しました: ' + (e.message || e)); }
+}
+async function bulkClosed(on) {
+  const w = +document.getElementById('bulkDow').value, n = new Date(Date.UTC(month.y, month.m, 0)).getUTCDate();
+  const target = []; for (let d = 1; d <= n; d++) { const ds = `${month.y}-${pad2(month.m)}-${pad2(d)}`; if (dow(ds) === w) target.push(ds); }
+  if (!confirm(`${month.m}月の${'日月火水木金土'[w]}曜(${target.length}日)を${on ? '定休日にします' : '定休日から外します'}。よろしいですか?`)) return;
+  try {
+    if (on) { const { error } = await sb.from('shop_closed_days').upsert(target.map(d => ({ date: d, note: monthClosed[d] ? monthClosed[d].note : null })), { onConflict: 'date' }); if (error) throw error; }
+    else { const { error } = await sb.from('shop_closed_days').delete().in('date', target); if (error) throw error; }
+    toast('反映しました'); loadView(false);
+  } catch (e) { toast('保存に失敗しました: ' + (e.message || e)); }
 }
 function moveMonth(n) { let m = month.m + n, y = month.y; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } month = { y, m }; loadView(false); }
 function gotoDay(d) { curDate = d; location.hash = '#day'; if (view === 'day') loadView(false); }
