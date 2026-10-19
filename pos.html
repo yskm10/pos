@@ -345,6 +345,22 @@ const sdb = {
   delete: (t, filters)      => sfetch(t, {method:'DELETE', filters}),
 };
 
+// 本日の予約(テーブルカードの「予約あり」表示用)。取得に失敗してもPOS本体には影響させない
+async function loadResv(){
+  try{
+    const d=todayStr();
+    const rs=await sdb.get('reservations',[['business_date','eq',d],['status','eq','reserved']],'start_min');
+    if(!Array.isArray(rs)){ return; }
+    let rt=[];
+    if(rs.length){ const r2=await sdb.get('reservation_tables',[['reservation_id','in','('+rs.map(r=>r.id).join(',')+')']]); rt=Array.isArray(r2)?r2:[]; }
+    STATE.resvToday=rs.map(r=>({...r,tids:rt.filter(x=>x.reservation_id===r.id).map(x=>x.table_id)}));
+  }catch(e){ STATE.resvToday=STATE.resvToday||[]; }
+}
+const esc2=x=>String(x==null?'':x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const minHM=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+function resvOfTable(id){ return (STATE.resvToday||[]).filter(r=>r.all_tables||r.tids.includes(id)); }
+setInterval(()=>{ if(ACCESS_TOKEN&&!document.hidden){ loadResv().then(()=>{ if(STATE.view==='tables') render(); }); } },120000);
+
 async function loadAll(){
   const [tr,mn,ca,sa,cl,sh] = await Promise.all([
     sdb.get('tables',[],'id'),
@@ -360,6 +376,7 @@ async function loadAll(){
   STATE.sales      = Array.isArray(sa)?sa:[];
   STATE.cashLogs   = Array.isArray(cl)?cl:[];
   if(Array.isArray(sh)&&sh[0]) STATE.shop = JSON.parse(sh[0].value);
+  await loadResv();
 }
 
 async function syncTable(id, patch){
@@ -551,6 +568,7 @@ function viewTables(){
       ${badge(t.status, color)}
       ${t.status!=='空席'?`<div style="color:#9ca3af;font-size:11px;margin-top:6px;">${elapsed(t.opened_at)}</div>`:''}
       ${t.status!=='空席'?`<div style="color:#f5a623;font-size:13px;margin-top:4px;font-weight:700;">${fmt(calcTotal(calcSub(order)))}</div>`:''}
+      ${resvOfTable(t.id).slice(0,2).map(r=>`<div style="margin-top:6px;padding:3px 6px;background:rgba(96,165,250,.15);border-left:3px solid #60a5fa;border-radius:4px;color:#93c5fd;font-size:11px;font-weight:700;line-height:1.35;">📅 ${minHM(r.start_min)} ${esc2(r.guest_name||'')}様 ${r.party_size}名${r.kind==='course'?'・コース':r.kind==='private'?'・貸切':''}</div>`).join('')}
       ${resetBtn}
     </div>`;
   }).join('');
