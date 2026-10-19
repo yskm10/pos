@@ -68,12 +68,15 @@ button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-actio
 .cal .cell .c{color:#7fd8a6;font-weight:700;}
 .cal .cell .p{color:#9ca3af;}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:flex;align-items:flex-end;justify-content:center;}
-.sheet{background:#1a1d2a;border:1px solid #2e3250;border-radius:18px 18px 0 0;width:100%;max-width:720px;padding:16px 16px 26px;max-height:94vh;overflow:auto;}
+.sheet{background:#1a1d2a;border:1px solid #2e3250;border-radius:18px 18px 0 0;width:100%;max-width:720px;padding:16px 16px 26px;max-height:94vh;max-height:94dvh;overflow:auto;-webkit-overflow-scrolling:touch;}
+/* スマホ: ブラウザの上下バー(半透明)の下に隠れないよう、バーの分だけ余白を空ける */
+@media (max-width:600px){.overlay{padding:125px 0 95px;}.sheet{max-height:100%;border-radius:18px;}}
 .sheet h2{font-size:16px;margin-bottom:10px;}
 .fld{margin-bottom:11px;}
 .fld label{display:block;font-size:11.5px;color:#9ca3af;margin-bottom:4px;}
 .fld input,.fld select,.fld textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;}
-.row2{display:flex;gap:8px;} .row2>.fld{flex:1;}
+.row2{display:flex;gap:8px;} .row2>.fld{flex:1;min-width:0;}
+.fld input[type=date],.fld input[type=time]{min-width:0;max-width:100%;-webkit-appearance:none;appearance:none;text-align:center;}
 .seg{display:flex;gap:6px;}
 .seg button{flex:1;padding:10px 2px;background:#22263a;color:#9ca3af;font-size:13px;}
 .seg button.on{background:#5b8ef5;color:#fff;}
@@ -450,7 +453,7 @@ async function saveCust(id) {
 
 // ---- 予約の入力・編集 ----
 // ---- 画面内テンキー(iPadは inputmode=numeric でも記号キーボードになるため。タッチ端末のみ) ----
-const COARSE = window.matchMedia && matchMedia('(pointer:coarse)').matches;
+const COARSE = window.matchMedia && matchMedia('(pointer:coarse) and (min-width:700px)').matches; // iPad等のみ。iPhoneは標準の数字キーパッドが出る
 let npEl = null;
 function npClose() { const n = document.getElementById('numpad'); if (n) n.remove(); const sh = document.querySelector('#sheetHost .sheet'); if (sh) sh.style.paddingBottom = ''; npEl = null; }
 function npOpen(el) {
