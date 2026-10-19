@@ -496,6 +496,7 @@ function renderSheet() {
     <div class="fld"><label>席 <button class="chip" style="padding:4px 8px;margin-left:6px" onclick="autoPick()">空き席を自動で選ぶ</button></label><div class="chips" id="chips"></div><div class="cap" id="cap"></div></div>
     <div class="fld"><label>メモ(アレルギー・記念日・要望など)</label><textarea id="fMemo" rows="2">${esc(ed.memo)}</textarea></div>
     ${statusBtns}${feeBox}
+    <button class="chip" style="width:100%;padding:11px;margin:4px 0 8px;font-size:14px" onclick="showLineText()">💬 予約確認のLINE文面を作る</button>
     <div class="btns">${!isNew && isAdmin() ? '<button class="btn-del" style="flex:0 0 auto;padding:13px 16px" onclick="delRes()">削除</button>' : ''}<button class="btn-cancel" onclick="closeSheet()">閉じる</button><button class="btn-save" onclick="saveRes()">${isNew ? '予約を保存' : '変更を保存'}</button></div>
   </div></div>`;
   wireSheet(); renderCourseBox(); renderChips();
@@ -595,6 +596,38 @@ async function doLookup() {
 }
 
 // 保存・状態・削除
+// ---- LINE用の予約確認文 ----
+function buildLineText() {
+  const c = Object.assign({ course_day_before_pct: 50, course_same_day_pct: 100, private_days: 3, private_pct: 100 }, cfg);
+  const L = ['お料理みみです。', 'このたびはご予約ありがとうございます。', '下記の内容で承りました。', '', '━━━━━━━━━━'];
+  L.push(`【お名前】${joinName(ed.last, ed.first).trim()} 様`);
+  L.push(`【日 時】${dateLabel(ed.date)} ${toInput(ed.start)}〜`);
+  L.push(`【人 数】${ed.party}名様`);
+  if (ed.kind === 'course') L.push(`【内 容】コース${ed.course.trim() ? '「' + ed.course.trim() + '」' : ''}${ed.amount != null ? '(' + yen(ed.amount) + ')' : ''}`);
+  else if (ed.kind === 'private') L.push(`【内 容】貸切${ed.course.trim() ? '(' + ed.course.trim() + ')' : ''}${ed.amount != null ? ' ' + yen(ed.amount) : ''}`);
+  if (ed.memo.trim()) L.push(`【ご要望】${ed.memo.trim()}`);
+  L.push('━━━━━━━━━━');
+  if (ed.kind === 'course') L.push('', '【キャンセルについて】', `コースのご予約は、前日のキャンセルはコース料金の${c.course_day_before_pct}%、当日のキャンセル・ご連絡のないご欠席は${c.course_same_day_pct}%を頂戴いたします。`);
+  if (ed.kind === 'private') L.push('', '【キャンセルについて】', `貸切のご予約は、${c.private_days}日前からのキャンセル・ご連絡のないご欠席は料金の${c.private_pct}%を頂戴いたします。`);
+  L.push('', 'ご変更・キャンセルの際は、お早めにご連絡ください。', 'ご来店を心よりお待ちしております。');
+  return L.join('\n');
+}
+function showLineText() {
+  if (!ed.last.trim()) return toast('先に姓を入力してください');
+  if (!ed.date) return toast('日付を入力してください');
+  const ov = document.createElement('div'); ov.className = 'overlay'; ov.id = 'lineOv'; ov.style.zIndex = 60;
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = `<div class="sheet"><h2>💬 予約確認のLINE文面</h2><div class="note" style="margin-bottom:8px">入力中の内容から作っています。保存前でも使えます。必要なら下で直してからコピーしてください。</div>
+    <textarea id="lineTxt" rows="14" style="width:100%;font-size:14px;line-height:1.5">${esc(buildLineText())}</textarea>
+    <div class="btns"><button class="btn-cancel" onclick="document.getElementById('lineOv').remove()">閉じる</button><button class="btn-save" id="lineCopy">コピーする</button></div></div>`;
+  document.body.appendChild(ov);
+  document.getElementById('lineCopy').onclick = async () => {
+    const ta = document.getElementById('lineTxt'); let ok = false;
+    try { await navigator.clipboard.writeText(ta.value); ok = true; } catch (_) {}
+    if (!ok) { ta.focus(); ta.select(); try { ok = document.execCommand('copy'); } catch (_) {} }
+    toast(ok ? 'コピーしました。LINEに貼り付けてください' : 'コピーできませんでした。文面を長押しして選択してください');
+  };
+}
 function buildPayload() {
   return { guest_name: joinName(ed.last, ed.first), last_name: ed.last.trim(), first_name: ed.first.trim(), guest_phone: normPhone(ed.phone), business_date: ed.date, start_min: ed.start, end_min: ed.end, party_size: ed.party, kind: ed.kind,
     course_name: ed.kind === 'normal' ? '' : ed.course.trim(), amount: ed.kind === 'normal' ? null : ed.amount, all_tables: ed.kind === 'private', channel: ed.channel, memo: ed.memo.trim(),
