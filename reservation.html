@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>予約管理</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0f1117;font-family:'Helvetica Neue',Arial,'Hiragino Sans','Yu Gothic',sans-serif;color:#e8eaf0;min-height:100vh;}
+input,button,select,textarea{font-family:inherit;font-size:14px;}
+button{cursor:pointer;border:none;border-radius:10px;font-weight:700;touch-action:manipulation;}
+.wrap{max-width:720px;margin:0 auto;padding:16px 14px 90px;}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.header h1{font-size:18px;font-weight:800;}
+.icon-btn{background:none;color:#9ca3af;font-size:18px;padding:6px 8px;text-decoration:none;}
+.tabs{display:flex;gap:6px;margin-bottom:14px;}
+.tabs a{flex:1;text-align:center;padding:10px 4px;border-radius:10px;background:#1a1d2a;border:1px solid #2e3250;color:#9ca3af;font-size:13px;font-weight:700;text-decoration:none;}
+.tabs .on{background:#5b8ef5;border-color:#5b8ef5;color:#fff;}
+.card{background:#1a1d2a;border:1px solid #2e3250;border-radius:14px;padding:12px 14px;margin-bottom:12px;}
+.note{color:#9ca3af;font-size:12px;line-height:1.8;}
+.err{color:#e05252;font-size:13px;margin-top:8px;line-height:1.7;}
+.datenav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px;}
+.datenav button{background:#22263a;color:#e8eaf0;width:38px;height:38px;border-radius:50%;font-size:16px;}
+.datenav .label{font-size:16px;font-weight:800;min-width:130px;text-align:center;}
+.datenav .today{width:auto;border-radius:10px;padding:0 12px;font-size:12px;}
+.sum{display:flex;gap:8px;margin-bottom:10px;}
+.sum .box{flex:1;background:#1a1d2a;border:1px solid #2e3250;border-radius:12px;padding:8px 6px;text-align:center;}
+.sum .box .v{font-size:16px;font-weight:800;}
+.sum .box .k{font-size:10.5px;color:#9ca3af;margin-top:2px;}
+.addbtn{width:100%;padding:14px;background:#5b8ef5;color:#fff;font-size:15px;margin-bottom:12px;}
+.tag{display:inline-block;font-size:10.5px;padding:2px 6px;border-radius:6px;background:#2e3250;color:#9ca3af;margin-left:3px;white-space:nowrap;}
+.tag.closed{background:#5a2323;color:#ffb3b3;}
+.tag.course{background:#4a3d1a;color:#f0cf7a;} .tag.private{background:#3d2a5a;color:#d3b3ff;}
+.tag.seated{background:#1e3d2c;color:#7fd8a6;} .tag.bad{background:#5a2323;color:#ffb3b3;}
+.tag.fee{background:#5a3a1a;color:#ffc98a;}
+.res{display:flex;gap:10px;padding:11px 2px;border-top:1px solid #2e3250;cursor:pointer;}
+.res:first-child{border-top:none;}
+.res:active{background:#22263a;}
+.res .tm{width:62px;flex-shrink:0;font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.5;}
+.res .tm small{display:block;font-weight:400;color:#9ca3af;font-size:11px;}
+.res .bd{flex:1;font-size:13.5px;line-height:1.7;}
+.res .bd .nm{font-weight:800;}
+.res .bd .sub{color:#9ca3af;font-size:12px;}
+.res.dead{opacity:.5;} .res.dead .nm{text-decoration:line-through;}
+.tl-wrap{overflow-x:auto;margin-bottom:12px;border:1px solid #2e3250;border-radius:12px;background:#1a1d2a;}
+.tl{position:relative;min-width:100%;}
+.tl-row{display:flex;height:26px;border-top:1px solid #23273a;}
+.tl-row:first-child{border-top:none;}
+.tl-lab{position:sticky;left:0;z-index:3;width:76px;flex-shrink:0;background:#1a1d2a;font-size:11px;color:#9ca3af;padding:0 6px;display:flex;align-items:center;border-right:1px solid #2e3250;white-space:nowrap;overflow:hidden;}
+.tl-cells{position:relative;flex:1;}
+.tl-hour{position:absolute;top:0;bottom:0;border-left:1px solid #23273a;font-size:10px;color:#5d6380;padding-left:3px;}
+.tl-head .tl-cells{height:100%;}
+.tl-bar{position:absolute;top:3px;bottom:3px;border-radius:5px;background:#2f5fd0;color:#fff;font-size:10.5px;line-height:20px;padding:0 4px;overflow:hidden;white-space:nowrap;cursor:pointer;z-index:2;}
+.tl-bar.seated{background:#2a7a4f;} .tl-bar.done{background:#4a5068;}
+.tl-bar.course{background:#8a6d1e;} .tl-bar.private{background:#6a3fa8;}
+.tl-bar.gone{background:#7a3a3a;opacity:.7;}
+.legend{font-size:11px;color:#9ca3af;margin:-6px 2px 12px;}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.cal .dh{text-align:center;font-size:11px;color:#9ca3af;padding:4px 0;}
+.cal .dh.sat{color:#6ea8ff;} .cal .dh.sun{color:#f08080;}
+.cal .cell{min-height:64px;background:#1a1d2a;border:1px solid #2e3250;border-radius:8px;padding:4px;cursor:pointer;font-size:11px;line-height:1.5;}
+.cal .cell.out{visibility:hidden;}
+.cal .cell .n{font-weight:800;font-size:12px;}
+.cal .cell.sat .n{color:#6ea8ff;} .cal .cell.sun .n,.cal .cell.hol .n{color:#f08080;}
+.cal .cell.today{border-color:#5b8ef5;}
+.cal .cell.closed{background:#2a1a1a;}
+.cal .cell .c{color:#7fd8a6;font-weight:700;}
+.cal .cell .p{color:#9ca3af;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:flex;align-items:flex-end;justify-content:center;}
+.sheet{background:#1a1d2a;border:1px solid #2e3250;border-radius:18px 18px 0 0;width:100%;max-width:720px;padding:16px 16px 26px;max-height:94vh;overflow:auto;}
+.sheet h2{font-size:16px;margin-bottom:10px;}
+.fld{margin-bottom:11px;}
+.fld label{display:block;font-size:11.5px;color:#9ca3af;margin-bottom:4px;}
+.fld input,.fld select,.fld textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #2e3250;background:#0f1117;color:#e8eaf0;}
+.row2{display:flex;gap:8px;} .row2>.fld{flex:1;}
+.seg{display:flex;gap:6px;}
+.seg button{flex:1;padding:10px 2px;background:#22263a;color:#9ca3af;font-size:13px;}
+.seg button.on{background:#5b8ef5;color:#fff;}
+.seg.st button.on.reserved{background:#2f5fd0;} .seg.st button.on.seated{background:#2a7a4f;}
+.seg.st button.on.cancelled{background:#6b5a2a;} .seg.st button.on.no_show,.seg.st button.on.same_day_no_show{background:#8a2e2e;}
+.stepper{display:flex;gap:6px;align-items:center;}
+.stepper button{background:#22263a;color:#e8eaf0;width:42px;height:42px;font-size:18px;}
+.stepper input{text-align:center;font-size:17px;font-weight:800;}
+.chips{display:flex;flex-wrap:wrap;gap:6px;}
+.chip{padding:8px 10px;border-radius:8px;background:#22263a;color:#e8eaf0;font-size:12.5px;border:1px solid #2e3250;}
+.chip.on{background:#5b8ef5;border-color:#5b8ef5;color:#fff;}
+.chip.busy{opacity:.35;text-decoration:line-through;}
+.chip.gone{border-style:dashed;color:#f0a0a0;}
+.cap{font-size:12px;margin-top:6px;color:#9ca3af;} .cap.bad{color:#f0a0a0;}
+.lookup{border-radius:10px;padding:9px 11px;font-size:12.5px;line-height:1.7;margin-top:6px;background:#22263a;color:#c5c9da;}
+.lookup.warn{background:#4a2a1a;color:#ffc98a;border:1px solid #b5651d;}
+.lookup.stop{background:#5a2323;color:#ffd0d0;border:1px solid #c04040;font-weight:700;}
+.lookup.ok{background:#1e3d2c;color:#bfeccf;}
+.btns{display:flex;gap:8px;margin-top:12px;}
+.btns button{flex:1;padding:13px;font-size:14.5px;}
+.btn-save{background:#5b8ef5;color:#fff;} .btn-cancel{background:#22263a;color:#9ca3af;}
+.btn-del{background:#3a2020;color:#ffb3b3;}
+.fee{border:1px solid #6b4a1a;background:#2a2012;border-radius:12px;padding:10px 12px;margin:12px 0;}
+.fee h3{font-size:13px;color:#ffc98a;margin-bottom:8px;}
+.search{width:100%;padding:11px;border-radius:10px;border:1px solid #2e3250;background:#1a1d2a;color:#e8eaf0;margin-bottom:10px;}
+.spinner{width:28px;height:28px;border:3px solid #2e3250;border-top-color:#5b8ef5;border-radius:50%;margin:60px auto;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#22263a;border:1px solid #2e3250;padding:10px 16px;border-radius:10px;font-size:13px;z-index:99;max-width:90vw;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>予約管理</h1>
+    <div>
+      <button class="icon-btn" onclick="reloadAll()" title="更新">🔄</button>
+      <a class="icon-btn" href="./home.html" title="ホームへ">🏠</a>
+    </div>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div id="app"><div class="spinner"></div></div>
+</div>
+<div id="sheetHost"></div>
+
+<script>
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const KIND = { normal: '席のみ', course: 'コース', private: '貸切' };
+const STATUS = { reserved: '予約中', seated: '来店済', done: '完了', cancelled: 'キャンセル', no_show: '無断キャンセル', same_day_no_show: '当日無断キャンセル' };
+const DEAD = ['cancelled', 'no_show', 'same_day_no_show'];
+const FEE_ST = { none: 'なし', unbilled: '未請求', billed: '請求済', paid: '入金済', waived: '免除' };
+const CHANNEL = { phone: '電話', line: 'LINE', walkin: '来店', other: 'その他' };
+
+let ME = null, cfg = { normal_minutes: 120, course_minutes: 150, private_minutes: 180, timeline_start_min: 960, timeline_end_min: 1560 };
+let view = 'day', curDate = null, month = null;
+let tablesLive = [], resv = [], rtMap = {}, closedMap = {}, ed = null, loadSeq = 0, dayCache = {};
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad2 = n => String(n).padStart(2, '0');
+const yen = n => n == null ? '—' : '¥' + Number(n).toLocaleString('ja-JP');
+const isOwner = () => ME && ME.role === 'owner';
+const isAdmin = () => ME && ['owner', 'manager'].includes(ME.role);
+
+// ---- 日付・時刻(日本時間。営業日は7:00区切り)----
+const JST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' });
+function bizToday() { return JST.format(new Date(Date.now() - 7 * 3600e3)); }
+function dow(d) { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd)).getUTCDay(); }
+function addDays(d, n) { const [y, m, dd] = d.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1, dd + n)); return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`; }
+function dateLabel(d) { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}(${'日月火水木金土'[dow(d)]})`; }
+function fmtMin(n) { return `${Math.floor(n / 60)}:${pad2(n % 60)}`; }
+function toMin(hhmm) { if (!hhmm) return null; const [h, m] = hhmm.split(':').map(Number); return (h < 7 ? h + 24 : h) * 60 + m; }
+function toInput(min) { const v = min >= 1440 ? min - 1440 : min; return `${pad2(Math.floor(v / 60))}:${pad2(v % 60)}`; }
+
+// ---- 日本の祝日(shift.htmlと同じ判定)----
+function ymd(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function jpEquinoxDay(year, type){ const base = type==='spring' ? 20.8431 : 23.2488; return Math.floor(base + 0.242194*(year-1980) - Math.floor((year-1980)/4)); }
+function nthMonday(year, month, n){ let c=0; for(let day=1; day<=31; day++){ const dt=new Date(year,month-1,day); if(dt.getMonth()!==month-1) break; if(dt.getDay()===1){ c++; if(c===n) return day; } } return null; }
+const _holCache = {};
+function buildJpHolidays(year){
+  const H = {};
+  const add=(m,d,name)=>{ H[`${year}-${pad2(m)}-${pad2(d)}`]=name; };
+  add(1,1,'元日'); const a1=nthMonday(year,1,2); if(a1) add(1,a1,'成人の日');
+  add(2,11,'建国記念の日'); add(2,23,'天皇誕生日'); add(3,jpEquinoxDay(year,'spring'),'春分の日');
+  add(4,29,'昭和の日'); add(5,3,'憲法記念日'); add(5,4,'みどりの日'); add(5,5,'こどもの日');
+  const a7=nthMonday(year,7,3); if(a7) add(7,a7,'海の日'); add(8,11,'山の日');
+  const a9=nthMonday(year,9,3); if(a9) add(9,a9,'敬老の日'); add(9,jpEquinoxDay(year,'autumn'),'秋分の日');
+  const a10=nthMonday(year,10,2); if(a10) add(10,a10,'スポーツの日'); add(11,3,'文化の日'); add(11,23,'勤労感謝の日');
+  Object.keys(H).sort().forEach(k=>{ const dt=new Date(k+'T00:00:00'); if(dt.getDay()===0){ const n=new Date(dt); do{ n.setDate(n.getDate()+1); }while(H[ymd(n)]); H[ymd(n)]='振替休日'; } });
+  Object.keys(H).sort().forEach(k=>{ const dt=new Date(k+'T00:00:00'); const n=new Date(dt); n.setDate(n.getDate()+1); const n2=new Date(n); n2.setDate(n2.getDate()+1);
+    if(!H[ymd(n)] && n.getDay()!==0 && n.getDay()!==6 && H[ymd(n2)]) H[ymd(n)]='国民の休日'; });
+  return H;
+}
+function holidayName(d){ const y=+d.slice(0,4); if(!_holCache[y]) _holCache[y]=buildJpHolidays(y); return _holCache[y][d]||null; }
+
+function toast(msg) {
+  const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg; document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ---- 起動 ----
+function parseHash() { const h = location.hash.replace('#', ''); view = ['day', 'month', 'fee', 'cust'].includes(h) ? h : 'day'; if (view === 'cust' && !isOwner()) view = 'day'; if (view === 'fee' && !isAdmin()) view = 'day'; }
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return showMsg('ログインが必要です。<br>ホーム画面でログインしてから開いてください。');
+  try {
+    const { data, error } = await sb.from('staff').select('id,name,role,active').eq('auth_user_id', session.user.id).maybeSingle();
+    if (error) throw error;
+    ME = data;
+  } catch (e) { return showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
+  if (!ME || !ME.active || !['owner', 'manager', 'staff', 'register'].includes(ME.role)) return showMsg('この画面を使える権限がありません。');
+  parseHash();
+  curDate = bizToday();
+  month = { y: +curDate.slice(0, 4), m: +curDate.slice(5, 7) };
+  try { const { data } = await sb.from('reservation_config').select('*').eq('id', 1).maybeSingle(); if (data) cfg = data; } catch (e) {}
+  await reloadAll();
+  setInterval(() => { if (!ed && document.visibilityState === 'visible' && view === 'day') loadView(true); }, 60000);
+}
+window.addEventListener('hashchange', () => { parseHash(); reloadAll(); });
+function showMsg(html) { document.getElementById('app').innerHTML = `<div class="card"><div class="note">${html}</div></div>`; }
+function renderTabs() {
+  const t = (id, label) => `<a href="#${id}" class="${view === id ? 'on' : ''}">${label}</a>`;
+  document.getElementById('tabs').innerHTML = t('day', '📋 日別') + t('month', '📅 月') + (isAdmin() ? t('fee', '💴 キャンセル料') : '') + (isOwner() ? t('cust', '👤 顧客') : '');
+}
+async function reloadAll() { renderTabs(); await loadView(false); }
+async function loadView(silent) {
+  const my = ++loadSeq;
+  if (!silent) document.getElementById('app').innerHTML = '<div class="spinner"></div>';
+  try {
+    if (view === 'day') await loadDay(my);
+    else if (view === 'month') await loadMonth(my);
+    else if (view === 'fee') await loadFee(my);
+    else if (view === 'cust') await loadCust(my);
+  } catch (e) { if (my === loadSeq) showMsg('読み込みに失敗しました: ' + esc(e.message || String(e))); }
+}
+
+// ---- 席(POSのテーブルをそのまま使う) ----
+async function loadTables() {
+  const { data, error } = await sb.from('tables').select('id,name,seats').order('id');
+  if (error) throw error;
+  tablesLive = data || [];
+}
+async function fetchDay(date) {
+  const { data: rs, error } = await sb.from('reservations').select('*').eq('business_date', date).order('start_min');
+  if (error) throw error;
+  const ids = (rs || []).map(r => r.id);
+  const map = {};
+  if (ids.length) {
+    const { data: rt, error: e2 } = await sb.from('reservation_tables').select('reservation_id,table_id,table_name').in('reservation_id', ids);
+    if (e2) throw e2;
+    (rt || []).forEach(x => (map[x.reservation_id] = map[x.reservation_id] || []).push(x));
+  }
+  return { rs: rs || [], map };
+}
+
+// ---- 日別 ----
+async function loadDay(my) {
+  await loadTables();
+  const [{ rs, map }, cd] = await Promise.all([fetchDay(curDate), sb.from('shop_closed_days').select('*').eq('date', curDate)]);
+  if (my !== loadSeq) return;
+  resv = rs; rtMap = map; dayCache[curDate] = { rs, map };
+  closedMap = {}; ((cd && cd.data) || []).forEach(c => (closedMap[c.date] = c));
+  renderDay();
+}
+function seatNames(r) {
+  if (r.all_tables) return '全席(貸切)';
+  const rt = rtMap[r.id] || [];
+  if (!rt.length) return '席未定';
+  return rt.map(x => { const live = tablesLive.find(t => t.id === x.table_id); return live ? live.name : (x.table_name || '席') + '(削除された席)'; }).join('・');
+}
+function renderDay() {
+  const live = resv.filter(r => !DEAD.includes(r.status));
+  const people = live.reduce((a, r) => a + r.party_size, 0);
+  const hol = holidayName(curDate), cl = closedMap[curDate];
+  const cls = dow(curDate) === 0 || hol ? 'color:#f08080' : dow(curDate) === 6 ? 'color:#6ea8ff' : '';
+  let html = `<div class="datenav">
+    <button onclick="moveDay(-1)">◀</button>
+    <div class="label" style="${cls}">${dateLabel(curDate)}${hol ? `<div style="font-size:10px">${esc(hol)}</div>` : ''}</div>
+    <button onclick="moveDay(1)">▶</button>
+    <button class="today" onclick="goToday()">今日</button>
+    <input type="date" id="dpick" value="${curDate}" onchange="pickDay(this.value)" style="width:0;height:0;opacity:0;position:absolute;">
+    <button class="today" onclick="document.getElementById('dpick').showPicker ? document.getElementById('dpick').showPicker() : document.getElementById('dpick').click()">📆</button>
+  </div>`;
+  if (cl) html += `<div class="card" style="background:#2a1a1a;border-color:#5a2323;"><span class="tag closed">定休日</span> ${esc(cl.note || '')}<div class="note">定休日にも予約は入れられます</div></div>`;
+  html += `<div class="sum"><div class="box"><div class="v">${live.length}</div><div class="k">予約(組)</div></div><div class="box"><div class="v">${people}</div><div class="k">人数</div></div><div class="box"><div class="v">${live.filter(r => r.kind !== 'normal').length}</div><div class="k">コース・貸切</div></div></div>`;
+  html += `<button class="addbtn" onclick="openEditor(null)">＋ 予約を入れる</button>`;
+  html += renderTimeline();
+  html += `<div class="card">` + (resv.length ? resv.map(resRow).join('') : '<div class="note">この日の予約はまだありません</div>') + `</div>`;
+  document.getElementById('app').innerHTML = html;
+}
+function resRow(r) {
+  const dead = DEAD.includes(r.status);
+  const tags = (r.kind !== 'normal' ? `<span class="tag ${r.kind}">${KIND[r.kind]}${r.course_name ? ' ' + esc(r.course_name) : ''}</span>` : '') +
+    (r.status === 'seated' ? '<span class="tag seated">来店済</span>' : dead ? `<span class="tag bad">${STATUS[r.status]}</span>` : '') +
+    (r.fee_status && r.fee_status !== 'none' ? `<span class="tag fee">キャンセル料 ${FEE_ST[r.fee_status]}${r.fee_amount != null ? ' ' + yen(r.fee_amount) : ''}</span>` : '');
+  return `<div class="res ${dead ? 'dead' : ''}" onclick="openEditor(${r.id})">
+    <div class="tm">${fmtMin(r.start_min)}<small>〜${fmtMin(r.end_min)}</small></div>
+    <div class="bd"><div><span class="nm">${esc(r.guest_name)}</span> 様 ${r.party_size}名 ${tags}</div>
+      <div class="sub">${esc(seatNames(r))} ・ ${CHANNEL[r.channel] || ''}${r.guest_phone ? ' ・ ' + esc(r.guest_phone) : ''}</div>
+      ${r.memo ? `<div class="sub">📝 ${esc(r.memo)}</div>` : ''}</div></div>`;
+}
+function renderTimeline() {
+  if (!tablesLive.length) return '';
+  const vis = resv;
+  let s = cfg.timeline_start_min, e = cfg.timeline_end_min;
+  vis.forEach(r => { s = Math.min(s, Math.floor(r.start_min / 60) * 60); e = Math.max(e, Math.ceil(r.end_min / 60) * 60); });
+  const PX = 56, W = (e - s) / 60 * PX, left = m => (m - s) / 60 * PX;
+  let hours = '';
+  for (let m = s; m < e; m += 60) hours += `<div class="tl-hour" style="left:${left(m)}px;width:${PX}px">${m / 60}</div>`;
+  let h = `<div class="tl-wrap"><div class="tl"><div class="tl-row tl-head" style="height:20px"><div class="tl-lab"></div><div class="tl-cells" style="min-width:${W}px">${hours}</div></div>`;
+  const bar = r => {
+    const cl = DEAD.includes(r.status) ? 'gone' : r.status === 'seated' ? 'seated' : r.status === 'done' ? 'done' : r.kind === 'private' ? 'private' : r.kind === 'course' ? 'course' : '';
+    return `<div class="tl-bar ${cl}" style="left:${left(r.start_min)}px;width:${(r.end_min - r.start_min) / 60 * PX - 2}px" onclick="openEditor(${r.id})">${esc(r.guest_name)} ${r.party_size}</div>`;
+  };
+  const show = vis.filter(r => !DEAD.includes(r.status));
+  tablesLive.forEach(t => {
+    const bars = show.filter(r => r.all_tables || (rtMap[r.id] || []).some(x => x.table_id === t.id)).map(bar).join('');
+    h += `<div class="tl-row"><div class="tl-lab">${esc(t.name)}</div><div class="tl-cells" style="min-width:${W}px">${hours}${bars}</div></div>`;
+  });
+  const orphan = show.filter(r => !r.all_tables && (rtMap[r.id] || []).some(x => !tablesLive.some(t => t.id === x.table_id)));
+  if (orphan.length) h += `<div class="tl-row"><div class="tl-lab">削除席</div><div class="tl-cells" style="min-width:${W}px">${hours}${orphan.map(bar).join('')}</div></div>`;
+  return h + `</div></div><div class="legend">青=席のみ / 黄=コース / 紫=貸切 / 緑=来店済 ・ タップで編集</div>`;
+}
+function moveDay(n) { curDate = addDays(curDate, n); loadView(false); }
+function goToday() { curDate = bizToday(); loadView(false); }
+function pickDay(v) { if (v) { curDate = v; loadView(false); } }
+
+// ---- 月 ----
+async function loadMonth(my) {
+  const first = `${month.y}-${pad2(month.m)}-01`, n = new Date(Date.UTC(month.y, month.m, 0)).getUTCDate(), last = `${month.y}-${pad2(month.m)}-${pad2(n)}`;
+  const [r, c] = await Promise.all([
+    sb.from('reservations').select('id,business_date,party_size,status,kind').gte('business_date', first).lte('business_date', last),
+    sb.from('shop_closed_days').select('*').gte('date', first).lte('date', last)]);
+  if (r.error) throw r.error;
+  if (my !== loadSeq) return;
+  const by = {}; (r.data || []).filter(x => !DEAD.includes(x.status)).forEach(x => { const o = by[x.business_date] = by[x.business_date] || { c: 0, p: 0, sp: 0 }; o.c++; o.p += x.party_size; if (x.kind !== 'normal') o.sp++; });
+  const cl = {}; ((c && c.data) || []).forEach(x => (cl[x.date] = x));
+  const lead = dow(first), today = bizToday();
+  let html = `<div class="datenav"><button onclick="moveMonth(-1)">◀</button><div class="label">${month.y}年${month.m}月</div><button onclick="moveMonth(1)">▶</button></div><div class="cal">`;
+  '日月火水木金土'.split('').forEach((w, i) => (html += `<div class="dh ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`));
+  for (let i = 0; i < lead; i++) html += '<div class="cell out"></div>';
+  for (let d = 1; d <= n; d++) {
+    const ds = `${month.y}-${pad2(month.m)}-${pad2(d)}`, o = by[ds], w = dow(ds), h = holidayName(ds);
+    html += `<div class="cell ${w === 0 ? 'sun' : w === 6 ? 'sat' : ''} ${h ? 'hol' : ''} ${ds === today ? 'today' : ''} ${cl[ds] ? 'closed' : ''}" onclick="gotoDay('${ds}')">
+      <div class="n">${d}</div>${cl[ds] ? '<span class="tag closed" style="margin:0">定休</span>' : ''}
+      ${o ? `<div class="c">${o.c}組</div><div class="p">${o.p}名${o.sp ? ' ・特' + o.sp : ''}</div>` : ''}</div>`;
+  }
+  html += '</div><div class="note" style="margin-top:8px">日付をタップすると、その日の予約を開きます。「特」はコース・貸切の件数です。</div>';
+  document.getElementById('app').innerHTML = html;
+}
+function moveMonth(n) { let m = month.m + n, y = month.y; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } month = { y, m }; loadView(false); }
+function gotoDay(d) { curDate = d; location.hash = '#day'; if (view === 'day') loadView(false); }
+
+// ---- キャンセル料(店主・店長) ----
+let feeAll = false;
+async function loadFee(my) {
+  await loadTables();
+  let q = sb.from('reservations').select('*').neq('fee_status', 'none').order('business_date', { ascending: false });
+  const { data, error } = await q;
+  if (error) throw error;
+  if (my !== loadSeq) return;
+  const rows = (data || []).filter(r => feeAll || ['unbilled', 'billed'].includes(r.fee_status));
+  const sum = st => (data || []).filter(r => r.fee_status === st).reduce((a, r) => a + (r.fee_amount || 0), 0);
+  let html = `<div class="sum"><div class="box"><div class="v">${yen(sum('unbilled'))}</div><div class="k">未請求</div></div><div class="box"><div class="v">${yen(sum('billed'))}</div><div class="k">請求済(未入金)</div></div><div class="box"><div class="v">${yen(sum('paid'))}</div><div class="k">入金済</div></div></div>`;
+  html += `<div class="seg" style="margin-bottom:10px"><button class="${feeAll ? '' : 'on'}" onclick="feeAll=false;loadView(false)">未回収のみ</button><button class="${feeAll ? 'on' : ''}" onclick="feeAll=true;loadView(false)">すべて</button></div>`;
+  html += `<div class="card">` + (rows.length ? rows.map(r => `<div class="res" onclick="openEditorFrom(${r.id})"><div class="tm">${dateLabel(r.business_date)}<small>${fmtMin(r.start_min)}</small></div>
+    <div class="bd"><div><span class="nm">${esc(r.guest_name)}</span> 様 ${r.party_size}名 <span class="tag bad">${STATUS[r.status]}</span> <span class="tag fee">${FEE_ST[r.fee_status]}${r.fee_amount != null ? ' ' + yen(r.fee_amount) : ' 金額未入力'}</span></div>
+    <div class="sub">${KIND[r.kind]}${r.course_name ? ' ' + esc(r.course_name) : ''}${r.fee_pct != null ? ` ・ ${r.fee_pct}%` : ''}${r.guest_phone ? ' ・ ' + esc(r.guest_phone) : ''}</div></div></div>`).join('') : '<div class="note">該当する記録はありません</div>') + '</div>';
+  document.getElementById('app').innerHTML = html;
+  window._feeRows = data || [];
+}
+function openEditorFrom(id) { const r = (window._feeRows || []).find(x => x.id === id); if (r) { dayCache[r.business_date] = dayCache[r.business_date]; openEditor(id, r); } }
+
+// ---- 顧客(店主のみ) ----
+let custList = [], custStats = {}, custQ = '';
+async function loadCust(my) {
+  const [c, r] = await Promise.all([
+    sb.from('customers').select('*').order('id', { ascending: false }),
+    sb.from('reservations').select('customer_id,status,business_date').not('customer_id', 'is', null)]);
+  if (c.error) throw c.error;
+  if (my !== loadSeq) return;
+  custList = c.data || []; custStats = {};
+  (r.data || []).forEach(x => { const o = custStats[x.customer_id] = custStats[x.customer_id] || { visits: 0, no_show: 0, same: 0, cancel: 0, last: null }; if (['seated', 'done'].includes(x.status)) o.visits++; if (x.status === 'no_show') o.no_show++; if (x.status === 'same_day_no_show') o.same++; if (x.status === 'cancelled') o.cancel++; if (!o.last || x.business_date > o.last) o.last = x.business_date; });
+  renderCust();
+}
+function renderCust() {
+  const q = custQ.trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  const rows = custList.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.kana || '').toLowerCase().includes(q) || (qd && (c.phone || '').includes(qd)));
+  const stTag = c => c.status === 'stopped' ? '<span class="tag bad">受付停止</span>' : c.status === 'caution' ? '<span class="tag fee">要注意</span>' : '';
+  const html = `<input class="search" id="custQ" placeholder="名前・電話番号で検索" value="${esc(custQ)}" oninput="custQ=this.value;renderCustList()">
+    <div class="card" id="custList"></div><div class="note">予約を入れると、電話番号からお客様が自動で登録されます。ここでは、状態(要注意・受付停止)とメモを管理します。</div>`;
+  document.getElementById('app').innerHTML = html;
+  renderCustList();
+}
+function renderCustList() {
+  const q = custQ.trim().toLowerCase(), qd = q.replace(/\D/g, '');
+  const rows = custList.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.kana || '').toLowerCase().includes(q) || (qd && (c.phone || '').includes(qd)));
+  const el = document.getElementById('custList'); if (!el) return;
+  el.innerHTML = rows.length ? rows.slice(0, 200).map(c => {
+    const s = custStats[c.id] || { visits: 0, no_show: 0, same: 0, cancel: 0 };
+    return `<div class="res" onclick="openCust(${c.id})"><div class="bd"><div><span class="nm">${esc(c.name)}</span>
+      ${c.status === 'stopped' ? '<span class="tag bad">受付停止</span>' : c.status === 'caution' ? '<span class="tag fee">要注意</span>' : ''}</div>
+      <div class="sub">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits} ・ 無断${s.no_show} ・ 当日無断${s.same} ・ キャンセル${s.cancel}</div>
+      ${c.status_reason ? `<div class="sub">理由: ${esc(c.status_reason)}</div>` : ''}</div></div>`;
+  }).join('') : '<div class="note">該当するお客様はいません</div>';
+}
+function openCust(id) {
+  const c = custList.find(x => x.id === id); if (!c) return;
+  const s = custStats[id] || { visits: 0, no_show: 0, same: 0, cancel: 0 };
+  document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
+    <h2>お客様情報</h2>
+    <div class="note" style="margin-bottom:10px">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits}回 ・ 無断キャンセル${s.no_show}回 ・ 当日無断キャンセル${s.same}回 ・ キャンセル${s.cancel}回</div>
+    <div class="row2"><div class="fld"><label>お名前</label><input id="cName" value="${esc(c.name)}"></div><div class="fld"><label>よみがな</label><input id="cKana" value="${esc(c.kana || '')}"></div></div>
+    <div class="fld"><label>状態</label><div class="seg" id="cSt">
+      <button data-v="normal" class="${c.status === 'normal' ? 'on' : ''}">通常</button><button data-v="caution" class="${c.status === 'caution' ? 'on' : ''}">要注意</button><button data-v="stopped" class="${c.status === 'stopped' ? 'on' : ''}">受付停止</button></div></div>
+    <div class="fld"><label>理由(要注意・受付停止のとき。予約入力の画面に表示されます)</label><input id="cReason" value="${esc(c.status_reason || '')}" placeholder="例: 2回連続で無断キャンセル"></div>
+    <div class="fld"><label>メモ(店主のみ)</label><textarea id="cNotes" rows="3">${esc(c.notes || '')}</textarea></div>
+    <div class="btns"><button class="btn-cancel" onclick="closeSheet()">閉じる</button><button class="btn-save" onclick="saveCust(${id})">保存</button></div></div></div>`;
+  document.querySelectorAll('#cSt button').forEach(b => b.onclick = () => { document.querySelectorAll('#cSt button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
+}
+async function saveCust(id) {
+  const name = document.getElementById('cName').value.trim();
+  if (!name) return toast('お名前を入力してください');
+  const st = document.querySelector('#cSt button.on').dataset.v, reason = document.getElementById('cReason').value.trim();
+  if (st !== 'normal' && !reason) return toast('理由を入力してください');
+  const old = custList.find(x => x.id === id);
+  const patch = { name, kana: document.getElementById('cKana').value.trim() || null, notes: document.getElementById('cNotes').value.trim() || null, status: st, status_reason: st === 'normal' ? null : reason, updated_at: new Date().toISOString() };
+  if (old && old.status !== st) patch.status_changed_at = new Date().toISOString();
+  const { error } = await sb.from('customers').update(patch).eq('id', id);
+  if (error) return toast('保存に失敗しました: ' + (error.message || error));
+  closeSheet(); toast('保存しました'); loadView(true);
+}
+
+// ---- 予約の入力・編集 ----
+function closeSheet() { ed = null; document.getElementById('sheetHost').innerHTML = ''; }
+function defaultMinutes(kind) { return kind === 'private' ? cfg.private_minutes : kind === 'course' ? cfg.course_minutes : cfg.normal_minutes; }
+async function openEditor(id, rowOverride) {
+  let r = null, rts = [];
+  if (id != null) {
+    r = rowOverride || resv.find(x => x.id === id);
+    if (!r) return;
+    if (!tablesLive.length) await loadTables();
+    if (rowOverride) { const { data } = await sb.from('reservation_tables').select('reservation_id,table_id,table_name').eq('reservation_id', id); rts = data || []; }
+    else rts = rtMap[id] || [];
+  }
+  ed = r ? { id: r.id, status: r.status, phone: r.guest_phone || '', name: r.guest_name, date: r.business_date, start: r.start_min, end: r.end_min, endTouched: true, party: r.party_size,
+      kind: r.kind, course: r.course_name || '', amount: r.amount, channel: r.channel, tables: new Set(rts.map(x => x.table_id)), snap: rts, memo: r.memo || '', row: r }
+    : { id: null, status: 'reserved', phone: '', name: '', date: curDate, start: 1080, end: 1080 + cfg.normal_minutes, endTouched: false, party: 2, kind: 'normal', course: '', amount: null, channel: 'phone', tables: new Set(), snap: [], memo: '', row: null };
+  ed.lookupSeq = 0; ed.info = null;
+  if (!dayCache[ed.date]) { try { dayCache[ed.date] = await fetchDay(ed.date); } catch (e) {} }
+  renderSheet();
+  if (ed.phone) doLookup();
+}
+function renderSheet() {
+  const isNew = ed.id == null, dead = DEAD.includes(ed.status);
+  const r = ed.row;
+  const statusBtns = !isNew ? `<div class="fld"><label>予約の状態</label><div class="seg st" id="stBtns">
+      ${['reserved', 'seated', 'cancelled', 'no_show', 'same_day_no_show'].map(s => `<button data-s="${s}" class="${s} ${ed.status === s ? 'on' : ''}" style="font-size:11.5px">${STATUS[s].replace('キャンセル', 'ｷｬﾝｾﾙ')}</button>`).join('')}</div>
+      <div class="note">「無断」=連絡なしの不来店 / 「当日無断」=当日の予約時刻を過ぎても連絡がない場合。どちらも顧客の注意対象になります</div></div>` : '';
+  const feeBox = (!isNew && r && r.fee_status && r.fee_status !== 'none') ? `<div class="fee"><h3>💴 キャンセル料(目安 ${r.fee_pct != null ? r.fee_pct + '%' : '—'})</h3>
+      ${isAdmin() ? `<div class="row2"><div class="fld"><label>金額</label><input type="number" id="feeAmt" value="${r.fee_amount == null ? '' : r.fee_amount}" inputmode="numeric"></div>
+      <div class="fld"><label>状況</label><select id="feeSt">${Object.entries(FEE_ST).map(([k, v]) => `<option value="${k}" ${r.fee_status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>
+      <div class="fld"><label>メモ</label><input id="feeNote" value="${esc(r.fee_note || '')}" placeholder="例: 振込で請求(10/20)"></div>
+      <button class="btn-save" style="width:100%;padding:11px" onclick="saveFee()">キャンセル料を保存</button>`
+      : `<div class="note">${FEE_ST[r.fee_status]} ${r.fee_amount != null ? yen(r.fee_amount) : ''}(変更は店主・店長のみ)</div>`}</div>` : '';
+  document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
+    <h2>${isNew ? '予約を入れる' : '予約の確認・変更'}</h2>
+    <div class="fld"><label>電話番号(入力すると、過去の来店・キャンセルの記録が出ます)</label><input id="fPhone" type="tel" inputmode="tel" value="${esc(ed.phone)}" placeholder="090-0000-0000"><div id="lookupBox"></div></div>
+    <div class="fld"><label>お名前</label><input id="fName" value="${esc(ed.name)}" placeholder="例: 田中"></div>
+    <div class="row2"><div class="fld"><label>日付</label><input type="date" id="fDate" value="${ed.date}"></div>
+      <div class="fld"><label>開始</label><input type="time" id="fStart" value="${toInput(ed.start)}" step="900"></div>
+      <div class="fld"><label>終了</label><input type="time" id="fEnd" value="${toInput(ed.end)}" step="900"></div></div>
+    <div class="fld"><label>人数</label><div class="stepper"><button onclick="stepParty(-1)">−</button><input id="fParty" type="number" inputmode="numeric" value="${ed.party}" min="1"><button onclick="stepParty(1)">＋</button></div></div>
+    <div class="fld"><label>種類</label><div class="seg" id="kindBtns">${Object.entries(KIND).map(([k, v]) => `<button data-k="${k}" class="${ed.kind === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+    <div id="courseBox"></div>
+    <div class="fld"><label>受付経路</label><div class="seg" id="chBtns">${Object.entries(CHANNEL).map(([k, v]) => `<button data-c="${k}" class="${ed.channel === k ? 'on' : ''}">${v}</button>`).join('')}</div></div>
+    <div class="fld"><label>席 <button class="chip" style="padding:4px 8px;margin-left:6px" onclick="autoPick()">空き席を自動で選ぶ</button></label><div class="chips" id="chips"></div><div class="cap" id="cap"></div></div>
+    <div class="fld"><label>メモ(アレルギー・記念日・要望など)</label><textarea id="fMemo" rows="2">${esc(ed.memo)}</textarea></div>
+    ${statusBtns}${feeBox}
+    <div class="btns">${!isNew && isAdmin() ? '<button class="btn-del" style="flex:0 0 auto;padding:13px 16px" onclick="delRes()">削除</button>' : ''}<button class="btn-cancel" onclick="closeSheet()">閉じる</button><button class="btn-save" onclick="saveRes()">${isNew ? '予約を保存' : '変更を保存'}</button></div>
+  </div></div>`;
+  wireSheet(); renderCourseBox(); renderChips();
+}
+function wireSheet() {
+  const $ = id => document.getElementById(id);
+  $('fPhone').oninput = e => { ed.phone = e.target.value; clearTimeout(ed.lt); ed.lt = setTimeout(doLookup, 350); };
+  $('fName').oninput = e => { ed.name = e.target.value; };
+  $('fMemo').oninput = e => { ed.memo = e.target.value; };
+  $('fParty').oninput = e => { ed.party = Math.max(1, parseInt(e.target.value) || 1); renderChips(); };
+  $('fDate').onchange = async e => { ed.date = e.target.value; if (ed.date && !dayCache[ed.date]) { try { dayCache[ed.date] = await fetchDay(ed.date); } catch (x) {} } renderChips(); };
+  $('fStart').onchange = e => { const m = toMin(e.target.value); if (m == null) return; const dur = ed.end - ed.start; ed.start = m; if (!ed.endTouched || ed.end <= ed.start) { ed.end = ed.start + (ed.endTouched && dur > 0 ? dur : defaultMinutes(ed.kind)); } $('fEnd').value = toInput(ed.end); renderChips(); };
+  $('fEnd').onchange = e => { const m = toMin(e.target.value); if (m == null) return; ed.end = m; ed.endTouched = true; renderChips(); };
+  document.querySelectorAll('#kindBtns button').forEach(b => b.onclick = () => {
+    ed.kind = b.dataset.k; document.querySelectorAll('#kindBtns button').forEach(x => x.classList.toggle('on', x === b));
+    if (!ed.endTouched) { ed.end = ed.start + defaultMinutes(ed.kind); document.getElementById('fEnd').value = toInput(ed.end); }
+    if (ed.kind === 'private') ed.tables = new Set();
+    renderCourseBox(); renderChips();
+  });
+  document.querySelectorAll('#chBtns button').forEach(b => b.onclick = () => { ed.channel = b.dataset.c; document.querySelectorAll('#chBtns button').forEach(x => x.classList.toggle('on', x === b)); });
+  document.querySelectorAll('#stBtns button').forEach(b => b.onclick = () => changeStatus(b.dataset.s));
+}
+function renderCourseBox() {
+  const el = document.getElementById('courseBox');
+  el.innerHTML = ed.kind === 'normal' ? '<div class="note" style="margin:-4px 0 10px">席のみの予約は、キャンセル料はかかりません</div>' : `<div class="row2"><div class="fld"><label>${ed.kind === 'private' ? '貸切の内容' : 'コース名'}</label><input id="fCourse" value="${esc(ed.course)}" placeholder="${ed.kind === 'private' ? '例: 会社の送別会' : '例: 季節の会席'}"></div>
+    <div class="fld"><label>金額(合計・税込。キャンセル料の計算に使います)</label><input id="fAmount" type="number" inputmode="numeric" value="${ed.amount == null ? '' : ed.amount}"></div></div>
+    <div class="note" style="margin:-6px 0 10px">${ed.kind === 'private' ? 'キャンセル料: 3日前から100%' : 'キャンセル料: 前日50% ・ 当日100%'}</div>`;
+  const c = document.getElementById('fCourse'), a = document.getElementById('fAmount');
+  if (c) c.oninput = e => { ed.course = e.target.value; };
+  if (a) a.oninput = e => { ed.amount = e.target.value === '' ? null : parseInt(e.target.value); };
+}
+function stepParty(n) { ed.party = Math.max(1, (ed.party || 1) + n); document.getElementById('fParty').value = ed.party; renderChips(); }
+
+// 席の空き状況(同じ日・重なる時間の他の予約)
+function busyInfo() {
+  const day = dayCache[ed.date] || { rs: [], map: {} };
+  const busy = new Set(); let allBusy = false;
+  day.rs.forEach(r => {
+    if (r.id === ed.id || DEAD.includes(r.status) || r.status === 'done') return;
+    if (!(r.start_min < ed.end && r.end_min > ed.start)) return;
+    if (r.all_tables) allBusy = true;
+    (day.map[r.id] || []).forEach(x => busy.add(x.table_id));
+  });
+  return { busy, allBusy };
+}
+function renderChips() {
+  const el = document.getElementById('chips'), cap = document.getElementById('cap'); if (!el) return;
+  if (ed.kind === 'private') { el.innerHTML = '<span class="chip on">全席を貸切にします</span>'; const { allBusy, busy } = busyInfo(); cap.className = 'cap' + ((allBusy || busy.size) ? ' bad' : ''); cap.textContent = (allBusy || busy.size) ? '⚠ この時間に、すでに他の予約があります' : ''; return; }
+  const { busy, allBusy } = busyInfo();
+  const goneSel = (ed.snap || []).filter(x => ed.tables.has(x.table_id) && !tablesLive.some(t => t.id === x.table_id));
+  el.innerHTML = tablesLive.map(t => `<button class="chip ${ed.tables.has(t.id) ? 'on' : ''} ${(busy.has(t.id) || allBusy) && !ed.tables.has(t.id) ? 'busy' : ''}" onclick="toggleTable('${t.id}')">${esc(t.name)}${t.seats > 1 ? `(${t.seats})` : ''}</button>`).join('') +
+    goneSel.map(x => `<button class="chip on gone" onclick="toggleTable('${x.table_id}')">${esc(x.table_name || '席')}(削除済)</button>`).join('');
+  const seats = [...ed.tables].reduce((a, id) => a + ((tablesLive.find(t => t.id === id) || {}).seats || 0), 0);
+  const conflict = [...ed.tables].some(id => busy.has(id)) || (allBusy && ed.tables.size);
+  cap.className = 'cap' + ((ed.tables.size && seats < ed.party) || conflict ? ' bad' : '');
+  cap.textContent = !ed.tables.size ? '席は未選択でも保存できます(あとで決める)' : `${seats}席を選択中 / ${ed.party}名${seats < ed.party ? ' ⚠ 席が足りません' : ''}${conflict ? ' ⚠ 他の予約と時間が重なる席があります' : ''}`;
+}
+function toggleTable(id) { if (ed.tables.has(id)) ed.tables.delete(id); else ed.tables.add(id); renderChips(); }
+function autoPick() {
+  if (ed.kind === 'private') return;
+  const { busy, allBusy } = busyInfo(); if (allBusy) return toast('この時間は貸切が入っています');
+  const free = tablesLive.filter(t => !busy.has(t.id));
+  const need = ed.party; let pick = [];
+  const single = free.filter(t => t.seats >= need).sort((a, b) => a.seats - b.seats)[0];
+  if (single) pick = [single];
+  else {
+    const ctr = free.filter(t => t.seats === 1).map(t => ({ t, n: parseInt((t.name.match(/(\d+)\s*$/) || [])[1]) })).filter(x => !isNaN(x.n)).sort((a, b) => a.n - b.n);
+    for (let i = 0; i + need <= ctr.length && !pick.length; i++) { const w = ctr.slice(i, i + need); if (w[w.length - 1].n - w[0].n === need - 1) pick = w.map(x => x.t); }
+    if (!pick.length) { let s = 0; for (const t of [...free].sort((a, b) => b.seats - a.seats)) { if (s >= need) break; pick.push(t); s += t.seats; } if (s < need) pick = []; }
+  }
+  if (!pick.length) return toast('空いている席で、人数に足りる組み合わせがありません');
+  ed.tables = new Set(pick.map(t => t.id)); renderChips();
+}
+
+// 電話番号 → 過去の記録
+async function doLookup() {
+  const box = document.getElementById('lookupBox'); if (!box || !ed) return;
+  const digits = ed.phone.replace(/\D/g, '');
+  if (digits.length < 10) { box.innerHTML = ''; ed.info = null; return; }
+  const seq = ++ed.lookupSeq;
+  const { data, error } = await sb.rpc('lookup_customer', { p_phone: ed.phone });
+  if (!ed || seq !== ed.lookupSeq) return;
+  const b = document.getElementById('lookupBox'); if (!b) return;
+  if (error) { b.innerHTML = ''; return; }
+  const i = data || { found: false }; ed.info = i;
+  if (!i.found) { b.innerHTML = '<div class="lookup">初めてのお客様です(この電話番号の記録なし)</div>'; return; }
+  if (!ed.name.trim()) { ed.name = i.name || ''; const n = document.getElementById('fName'); if (n) n.value = ed.name; }
+  const bad = (i.no_show || 0) + (i.same_day_no_show || 0);
+  const other = (i.names || []).filter(n => n && n !== ed.name.trim());
+  let cls = 'ok', head = `${esc(i.name)} 様 ・ 来店${i.visits || 0}回`;
+  if (i.status === 'stopped') { cls = 'stop'; head = `🚫 受付停止中のお客様です${i.reason ? '(' + esc(i.reason) + ')' : ''}。${isOwner() ? '' : '店主に確認してください'}`; }
+  else if (i.status === 'caution' || bad > 0) cls = 'warn';
+  const detail = `${bad ? `⚠ 無断キャンセル${i.no_show || 0}回 ・ 当日無断キャンセル${i.same_day_no_show || 0}回${i.last_incident ? '(直近 ' + i.last_incident.slice(5).replace('-', '/') + ')' : ''}<br>` : ''}${i.status === 'caution' && i.reason ? '要注意: ' + esc(i.reason) + '<br>' : ''}${(i.cancelled || 0) ? `キャンセル${i.cancelled}回 ` : ''}${other.length ? `<br>別名義の予約あり: ${other.map(esc).join('、')}` : ''}`;
+  b.innerHTML = `<div class="lookup ${cls}">${head}${detail ? '<br>' + detail : ''}</div>`;
+}
+
+// 保存・状態・削除
+function buildPayload() {
+  return { guest_name: ed.name.trim(), guest_phone: ed.phone.trim(), business_date: ed.date, start_min: ed.start, end_min: ed.end, party_size: ed.party, kind: ed.kind,
+    course_name: ed.kind === 'normal' ? '' : ed.course.trim(), amount: ed.kind === 'normal' ? null : ed.amount, all_tables: ed.kind === 'private', channel: ed.channel, memo: ed.memo.trim(),
+    tables: ed.kind === 'private' ? [] : [...ed.tables].map(id => { const t = tablesLive.find(x => x.id === id); const s = (ed.snap || []).find(x => x.table_id === id); return { id, name: t ? t.name : (s && s.table_name) || '' }; }) };
+}
+async function saveRes(force, override) {
+  if (!ed.name.trim()) return toast('お名前を入力してください');
+  if (!ed.date || ed.end <= ed.start) return toast('日付と時間を確認してください');
+  if (ed.kind !== 'normal' && ed.amount == null && !confirm('金額が未入力です。キャンセル料を自動計算できませんが、保存しますか?')) return;
+  const { data, error } = await sb.rpc('save_reservation', { p_id: ed.id, p: buildPayload(), p_force: !!force, p_override_reason: override || null });
+  if (error) return toast('保存に失敗しました: ' + (error.message || error));
+  if (data && data.ok) { closeSheet(); toast('保存しました'); curDate = ed ? curDate : curDate; await loadView(true); return; }
+  const code = data && data.code;
+  if (code === 'conflict') {
+    const c = (data.conflicts || []).map(x => `${x.guest_name}様 ${fmtMin(x.start_min)}〜${fmtMin(x.end_min)}`).join('、');
+    if (confirm(`同じ席・時間に別の予約があります(${c})。\nそれでも保存しますか?`)) return saveRes(true, override);
+    return;
+  }
+  if (code === 'stopped') return alert('この電話番号のお客様は、受付停止中です。' + (data.reason ? '\n理由: ' + data.reason : '') + '\n\n予約は入れられません。店主に確認してください。');
+  if (code === 'stopped_need_reason') {
+    const why = prompt('このお客様は受付停止中です' + (data.reason ? '(' + data.reason + ')' : '') + '。\nそれでも受け付ける場合は、理由を入力してください(記録に残ります)');
+    if (why && why.trim()) return saveRes(force, why.trim());
+    return;
+  }
+  toast(code === 'forbidden' ? '権限がありません' : '保存できませんでした(' + (code || '不明') + ')');
+}
+async function changeStatus(s) {
+  if (ed.id == null || s === ed.status) return;
+  if (DEAD.includes(s) && !confirm(`この予約を「${STATUS[s]}」にします。よろしいですか?`)) return;
+  const { data, error } = await sb.rpc('set_reservation_status', { p_id: ed.id, p_status: s });
+  if (error || !(data && data.ok)) return toast('変更できませんでした');
+  const msg = data.fee_pct > 0 ? `${STATUS[s]}にしました。キャンセル料の目安: ${data.fee_pct}%${data.fee_amount != null ? '(' + yen(data.fee_amount) + ')' : '(金額未入力)'}` : `${STATUS[s]}にしました`;
+  closeSheet(); toast(msg); await loadView(true);
+}
+async function saveFee() {
+  const amt = document.getElementById('feeAmt').value;
+  const { data, error } = await sb.rpc('set_reservation_fee', { p_id: ed.id, p_amount: amt === '' ? null : parseInt(amt), p_status: document.getElementById('feeSt').value, p_note: document.getElementById('feeNote').value });
+  if (error || !(data && data.ok)) return toast('保存できませんでした');
+  closeSheet(); toast('キャンセル料を保存しました'); await loadView(true);
+}
+async function delRes() {
+  if (!confirm('この予約を削除しますか?(記録は履歴に残ります。キャンセルの場合は、削除ではなく状態を変更してください)')) return;
+  const { data, error } = await sb.rpc('delete_reservation', { p_id: ed.id });
+  if (error || !(data && data.ok)) return toast('削除できませんでした');
+  closeSheet(); toast('削除しました'); await loadView(true);
+}
+
+init();
+</script>
+</body>
+</html>
