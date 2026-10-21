@@ -30,10 +30,15 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 
 - プロジェクトID: `hxrycxlcsetpjfbwqybv`(リージョン ap-northeast-1、プロジェクト名 "pos-system")
 - 認証: Supabase Auth(メール+パスワード)。フロントは anon key を直接埋め込み
-- **重要な既知の弱点**: `categories, menu, tables, sales, cash_logs, settings, vendors, payroll, tax_rates` の
-  9テーブルは Row Level Security (RLS) が無効なまま。anon keyはpos.htmlのソースに公開されているので、
-  理論上は誰でもAPIを直叩きしてデータを読み書きできる状態。UI側の権限分けはあくまで見た目の制御であり、
-  根本対策にはRLSポリシーの整備が必要(未着手)。
+- **9テーブルのRLS(2026-10-21 有効化済み)**: `categories, menu, tables, sales, cash_logs, settings, vendors, payroll, tax_rates` はRLSを有効にした(以前は無効で、公開のanon keyだけで誰でも読み書きできた)。
+  anon(未ログイン)は一切読み書きできない。権限はログイン中の`staff.role`で決まる(関数`staff_role()`。無効化された従業員・役割なしの新規登録者は何もできない):
+  - 閲覧: owner / manager / staff / register / accounting(売上・レジ記録・メニュー・カテゴリ・テーブル・店設定)
+  - 売上の追加: owner / manager / staff / register(売上の修正・取消はできない。画面にその機能はない)
+  - レジ記録(cash_logs)の追加・更新: owner / manager / staff / register
+  - メニュー・カテゴリ・テーブル・店設定の編集: owner / manager / staff / register(経理は閲覧のみ。現在の画面の動きに合わせた。将来、メニュー・設定は owner / manager に絞ることも可能)
+  - `payroll`(給与)・`vendors`・`tax_rates`: ownerのみ(経営ダッシュボード専用)
+  - 緊急時に元へ戻す場合: `alter table public.<テーブル名> disable row level security;`
+  - 動作確認: 役割別(店主・店長・レジ・経理・未ログイン・役割なしの新規登録者)で、閲覧・追加・更新の可否を本番DBで確認済み。
 - Edge Function `admin-create-staff-user` をデプロイ済み。経営ダッシュボードの「ログインアカウントを
   新規作成」機能から呼ばれる。service role keyを使い、呼び出し元がowner権限か毎回サーバー側で確認する。
 
@@ -41,7 +46,7 @@ GitHub Pages(リポジトリ「pos」、公開URL `https://yskm10.github.io/pos/
 
 | テーブル | RLS | 備考 |
 | --- | --- | --- |
-| `categories, menu, tables, sales, cash_logs, settings, vendors, payroll, tax_rates` | **無効** | 上記「重要な既知の弱点」参照 |
+| `categories, menu, tables, sales, cash_logs, settings, vendors, payroll, tax_rates` | 有効(2026-10-21) | 上記「9テーブルのRLS」参照。給与・取引先・税率は店主のみ |
 | `staff` | 有効 | 従業員マスタ。`role`列(owner/manager/staff/accounting)、`auth_user_id`でSupabase Authと紐付け。ログイン済みは閲覧可、編集は`is_owner()`のみ |
 | `expenses` | 有効 | 経費帳(日付・金額・取引先・科目・支払方法・レシート有無・除外フラグ) |
 | `petty_cash` | 有効 | 小口現金(入金/出金_釣銭/出金_経費/差異)。`linked_expense_id`で`expenses`と紐付け |
@@ -213,9 +218,14 @@ keiei-dashboard.html 自体も、ログイン後に `staff.role = 'owner'` か�
 6. **プリンターのドロワーが開かない(HTTP 502)**: プリンターのDHCP払い出しIPが変わったのが原因。
    ルーターでMACアドレス固定割当(DHCP予約)して解決済み。
 
+## 施工管理システム(同じSupabaseプロジェクトに同居・2026-10-21追加)
+
+別リポジトリ`yskm10/construction`の施工管理システム(他社の請負会社が現場の写真をアップロードする)が、このDBの専用スキーマ`kouji`と、`kj_`で始まる関数、非公開バケット`kouji-photos`を使う。
+POSのテーブル・ポリシーとは完全に分離してあるので、POS側の修正で`kouji`スキーマや`kj_*`関数、`kouji-photos`バケットには触れないこと。
+他社はSupabase Authを使わず、専用のID/パスワードの関数でログインする(POSのログインと混ざらない)。
+
 ## 未対応・今後の検討事項
 
-- RLSが無効な9テーブルへのポリシー整備(セキュリティ上の本質的な課題、現状はUI側の制御のみ)
 - `handle_new_user_signup()` / `is_owner()` のSECURITY DEFINER関数がanon/authenticatedから実行可能な状態
 - Supabase Authの「漏洩パスワード保護」設定が無効
 - checklist.htmlにログインゲートが未実装
