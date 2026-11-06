@@ -1141,7 +1141,7 @@ function viewSales(){
 
   function hbar(label,value,maxVal,sub,color='#f5a623',lw=90){
     const pct=maxVal>0?(value/maxVal)*100:0;
-    const showInside = pct > 28; // バー内に金額を収められる十分な幅があるか
+    const showInside = pct > 45; // バー内に金額を収められる十分な幅があるか(スマホは棒が短いので余裕を持たせる。足りなければ棒の右側に表示)
     return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
       <span style="color:#9ca3af;font-size:12px;width:${lw}px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${label}</span>
       <div style="flex:1;background:#22263a;border-radius:6px;height:22px;overflow:hidden;position:relative;">
