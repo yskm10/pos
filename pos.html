@@ -1276,7 +1276,7 @@ function viewSales(){
     const rankColors=['#f5a623','#5b8ef5','#4caf80'];
     const items=rows.map(([name,v],i)=>`<div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-        <div style="display:flex;align-items:center;gap:8px;"><span style="color:${i<3?'#f5a623':'#9ca3af'};font-weight:700;width:20px;">#${i+1}</span><span style="color:#e8eaf0;font-weight:600;">${name}</span><span style="color:#6b7280;font-size:11px;">${v.category}</span></div>
+        <div style="display:flex;align-items:center;gap:8px;"><span style="color:${i<3?'#f5a623':'#9ca3af'};font-weight:700;min-width:40px;flex-shrink:0;font-variant-numeric:tabular-nums;">#${i+1}</span><span style="color:#e8eaf0;font-weight:600;">${name}</span><span style="color:#6b7280;font-size:11px;">${v.category}</span></div>
         <div><span style="color:#f5a623;font-weight:800;font-size:15px;">${fmt(v.total)}</span><span style="color:#9ca3af;font-size:12px;margin-left:8px;">${v.qty}個</span></div>
       </div>
       <div style="background:#22263a;border-radius:6px;height:8px;overflow:hidden;"><div style="width:${(v.total/max)*100}%;background:${rankColors[i]||'rgba(107,114,128,.5)'};height:100%;border-radius:6px;"></div></div>
