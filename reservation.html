@@ -448,7 +448,7 @@ function openCust(id) {
     <h2>お客様情報</h2>
     <div class="note" style="margin-bottom:10px">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits}回 ・ 無断キャンセル${s.no_show}回 ・ 当日無断キャンセル${s.same}回 ・ キャンセル${s.cancel}回</div>
     ${custSalesBox(id)}
-    <div class="row2"><div class="fld"><label>姓</label><input id="cLast" value=""${esc(c.last_name != null ? c.last_name : splitName(c.name).last)}"></div><div class="fld"><label>名</label><input id="cFirst" value="${esc(c.last_name != null ? (c.first_name || '') : splitName(c.name).first)}"></div></div>
+    <div class="row2"><div class="fld"><label>姓</label><input id="cLast" value="${esc(c.last_name != null ? c.last_name : splitName(c.name).last)}"></div><div class="fld"><label>名</label><input id="cFirst" value="${esc(c.last_name != null ? (c.first_name || '') : splitName(c.name).first)}"></div></div>
     <div class="fld"><label>よみがな</label><input id="cKana" value="${esc(c.kana || '')}"></div>
     <div class="fld"><label>状態</label><div class="seg" id="cSt">
       <button data-v="normal" class="${c.status === 'normal' ? 'on' : ''}">通常</button><button data-v="caution" class="${c.status === 'caution' ? 'on' : ''}">要注意</button><button data-v="stopped" class="${c.status === 'stopped' ? 'on' : ''}">受付停止</button></div></div>
