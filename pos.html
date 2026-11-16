@@ -360,6 +360,120 @@ const minHM=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStar
 function resvOfTable(id){ return (STATE.resvToday||[]).filter(r=>r.all_tables||r.tids.includes(id)); }
 setInterval(()=>{ if(ACCESS_TOKEN&&!document.hidden){ loadResv().then(()=>{ if(STATE.view==='tables') render(); }); } },120000);
 
+// ═══════════════════════════════════════════
+// お客様(顧客)の選択: 売上・テーブルに顧客を結びつける(店主の顧客別売上用)
+// SQL(sql/customer_pos.sql)を実行済みで、tables に customer_id 列がある時だけ動く。
+// ═══════════════════════════════════════════
+const custReady=()=>Array.isArray(STATE.tables)&&STATE.tables.length>0&&('customer_id' in STATE.tables[0]);
+const cpatch=p=>{ if(custReady()) p.customer_id=null; return p; };
+STATE.custCache=STATE.custCache||{};
+const _custPending=new Set();
+const custName=id=>(STATE.custCache[id]&&STATE.custCache[id].name)||'(読み込み中)';
+function loadCustNames(){
+  if(!custReady()) return;
+  const ids=[...new Set(STATE.tables.map(t=>t.customer_id).filter(x=>x&&!STATE.custCache[x]&&!_custPending.has(x)))];
+  if(!ids.length) return;
+  ids.forEach(i=>_custPending.add(i));
+  sb.rpc('pos_get_customers',{p_ids:ids}).then(({data})=>{
+    (Array.isArray(data)?data:[]).forEach(c=>{STATE.custCache[c.id]={name:c.name,status:c.status};});
+    ids.forEach(i=>{ _custPending.delete(i); if(!STATE.custCache[i]) STATE.custCache[i]={name:'(不明)',status:'normal'}; });
+    render();
+  }).catch(()=>{ ids.forEach(i=>_custPending.delete(i)); });
+}
+const custStTag=st=>st==='stopped'?'<span style="background:rgba(224,82,82,.25);color:#ff8585;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;">受付停止</span>':st==='caution'?'<span style="background:rgba(245,166,35,.25);color:#f5a623;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;">要注意</span>':'';
+function customerChip(t,big){
+  if(!custReady()||!t) return '';
+  const pad=big?'10px 14px':'7px 10px';
+  if(t.customer_id){
+    const c=STATE.custCache[t.customer_id]||{};
+    return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:${big?0:12}px;padding:${pad};background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.35);border-radius:8px;">
+      <span style="flex:1;color:#c4b5fd;font-weight:700;font-size:${big?15:13}px;">👤 ${esc2(custName(t.customer_id))}${custStTag(c.status)}</span>
+      <button class="btn-ghost" onclick="openCustomerPicker()" style="padding:5px 10px;font-size:12px;">変更</button>
+      <button class="btn-ghost" onclick="clearCustomer()" style="padding:5px 10px;font-size:12px;" title="お客様を外す">✕</button></div>`;
+  }
+  const rs=(STATE.resvToday||[]).filter(r=>(r.all_tables||r.tids.includes(t.id))&&(r.guest_phone||r.guest_name)).slice(0,1);
+  return `<div style="margin-bottom:${big?0:12}px;">
+    <button class="btn-ghost" onclick="openCustomerPicker()" style="width:100%;padding:${pad};font-size:13px;">👤 お客様を選ぶ(任意)</button>
+    ${rs.map(r=>`<button onclick="pickResvCustomer(${r.id})" style="width:100%;margin-top:6px;padding:7px 10px;background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.35);border-radius:8px;color:#93c5fd;font-size:12px;font-weight:700;">📅 予約の方: ${esc2(r.guest_name||'')}様 → お客様にする</button>`).join('')}</div>`;
+}
+async function setTableCustomer(id,name,status){
+  STATE.custCache[id]={name,status:status||'normal'};
+  await syncTable(STATE.selId,{customer_id:id});
+}
+function clearCustomer(){ syncTable(STATE.selId,{customer_id:null}); }
+async function pickResvCustomer(rid){
+  const r=(STATE.resvToday||[]).find(x=>x.id===rid); if(!r) return;
+  const q=(r.guest_phone&&String(r.guest_phone).replace(/\D/g,'').length>=8)?r.guest_phone:(r.guest_name||'');
+  const {data}=await sb.rpc('pos_search_customers',{p_q:q});
+  const list=Array.isArray(data)?data:[];
+  if(list.length===1){ await setTableCustomer(list[0].id,list[0].name,list[0].status); showToast(list[0].name+' をお客様に設定しました'); }
+  else if(list.length===0){ showToast('この予約の方は、顧客に登録されていません(「お客様を選ぶ」から選ぶか、新規登録してください)','error'); }
+  else openCustomerPicker(r.guest_name||'');
+}
+let _custTimer=null;
+function openCustomerPicker(q0){
+  const old=document.getElementById('custPick'); if(old) old.remove();
+  const canReg=['owner','manager'].includes(CURRENT_ROLE);
+  const ov=document.createElement('div'); ov.id='custPick';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:60px 12px 12px;';
+  ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+  ov.innerHTML=`<div class="card" style="width:100%;max-width:460px;max-height:100%;overflow:auto;">
+    <div id="cpMain">
+      <div style="font-weight:800;font-size:16px;margin-bottom:10px;">👤 お客様を選ぶ</div>
+      <input type="text" id="cpQ" placeholder="名前・かな・電話番号(2文字以上)" value="${esc2(q0||'')}" style="width:100%;margin-bottom:8px;font-size:16px;" autocomplete="off">
+      <div id="cpRes" style="min-height:40px;"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        ${canReg?'<button class="btn-ghost" onclick="custShowForm()" style="flex:1;padding:10px 0;">＋ 新規登録</button>':''}
+        <button class="btn-ghost" onclick="document.getElementById(\'custPick\').remove()" style="flex:1;padding:10px 0;">閉じる</button>
+      </div>
+      ${canReg?'':'<div style="color:#6b7280;font-size:11px;margin-top:8px;">新しいお客様の登録は、店主・店長が行います</div>'}
+    </div></div>`;
+  document.body.appendChild(ov);
+  const qi=document.getElementById('cpQ');
+  qi.oninput=()=>{ clearTimeout(_custTimer); _custTimer=setTimeout(custDoSearch,250); };
+  qi.focus(); if(q0) custDoSearch();
+  else document.getElementById('cpRes').innerHTML='<div style="color:#6b7280;font-size:12px;">名前(例:田中)やかな、電話番号で探せます</div>';
+}
+async function custDoSearch(){
+  const q=(document.getElementById('cpQ')||{}).value||''; const el=document.getElementById('cpRes'); if(!el) return;
+  if(q.replace(/[\s　]/g,'').length<2){ el.innerHTML='<div style="color:#6b7280;font-size:12px;">2文字以上入力してください</div>'; return; }
+  const {data,error}=await sb.rpc('pos_search_customers',{p_q:q});
+  if(error){ el.innerHTML='<div style="color:#e05252;font-size:12px;">検索に失敗しました</div>'; return; }
+  const list=Array.isArray(data)?data:[];
+  window._custList=list;
+  el.innerHTML=list.length?list.map((c,i)=>`<button onclick="custPick(${i})" style="display:block;width:100%;text-align:left;padding:10px 12px;margin-bottom:6px;background:#22263a;border:1px solid #2e3250;border-radius:8px;color:#e8eaf0;font-size:15px;font-weight:700;">${esc2(c.name)}${c.kana?`<span style="color:#9ca3af;font-size:11px;font-weight:400;margin-left:8px;">${esc2(c.kana)}</span>`:''}${custStTag(c.status)}</button>`).join(''):'<div style="color:#9ca3af;font-size:13px;">該当するお客様がいません</div>';
+}
+async function custPick(i){
+  const c=(window._custList||[])[i]; if(!c) return;
+  document.getElementById('custPick').remove();
+  await setTableCustomer(c.id,c.name,c.status);
+  if(c.status==='stopped'||c.status==='caution') showToast(c.name+' さんは「'+(c.status==='stopped'?'受付停止':'要注意')+'」の方です','error');
+}
+function custShowForm(){
+  const el=document.getElementById('cpMain');
+  const inp='style="width:100%;font-size:16px;"';
+  el.innerHTML=`<div style="font-weight:800;font-size:16px;margin-bottom:10px;">＋ お客様の新規登録</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;"><div style="flex:1;"><div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">姓(必須)</div><input id="cfLast" ${inp} placeholder="田中"></div>
+    <div style="flex:1;"><div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">名</div><input id="cfFirst" ${inp} placeholder="太郎"></div></div>
+    <div style="margin-bottom:8px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">よみがな(検索しやすくなります)</div><input id="cfKana" ${inp} placeholder="たなか たろう"></div>
+    <div style="margin-bottom:8px;"><div style="color:#9ca3af;font-size:11px;margin-bottom:3px;">電話番号(わかれば。ハイフンなし)</div><input id="cfPhone" ${inp} inputmode="numeric" placeholder="09000000000"></div>
+    <div id="cfMsg" style="color:#e05252;font-size:12px;min-height:16px;"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;"><button class="btn-ghost" onclick="openCustomerPicker()" style="flex:1;padding:10px 0;">戻る</button>
+    <button class="btn-success" onclick="custSubmitForm()" style="flex:2;padding:10px 0;" id="cfBtn">登録して選ぶ</button></div>`;
+  document.getElementById('cfLast').focus();
+}
+async function custSubmitForm(){
+  const g=id=>document.getElementById(id).value.trim();
+  const last=g('cfLast'); if(!last){ document.getElementById('cfMsg').textContent='姓を入力してください'; return; }
+  const b=document.getElementById('cfBtn'); b.disabled=true;
+  const {data,error}=await sb.rpc('pos_create_customer',{p_last:last,p_first:g('cfFirst'),p_kana:g('cfKana'),p_phone:g('cfPhone')});
+  b.disabled=false;
+  if(error||!data||!data.ok){ document.getElementById('cfMsg').textContent=(data&&data.message)||(data&&data.code==='forbidden'?'登録できるのは店主・店長です':'登録に失敗しました'); return; }
+  document.getElementById('custPick').remove();
+  await setTableCustomer(data.id,data.name,'normal');
+  showToast(data.existing?(data.name+' さんは既に登録済みでした。お客様に設定しました'):(data.name+' さんを登録しました'));
+}
+
 async function loadAll(){
   const [tr,mn,ca,sa,cl,sh] = await Promise.all([
     sdb.get('tables',[],'id'),
@@ -534,6 +648,7 @@ function viewTables(){
       </div>
       ${badge(t.status, color)}
       ${t.status!=='空席'?`<div style="color:#9ca3af;font-size:11px;margin-top:6px;">${elapsed(t.opened_at)}</div>`:''}
+      ${(custReady()&&t.customer_id&&t.status!=='空席')?`<div style="color:#c4b5fd;font-size:12px;font-weight:700;margin-top:4px;">👤 ${esc2(custName(t.customer_id))}</div>`:''}
       ${t.status!=='空席'?`<div style="color:#f5a623;font-size:13px;margin-top:4px;font-weight:700;">${fmt(calcTotal(calcSub(order)))}</div>`:''}
       ${resvOfTable(t.id).slice(0,2).map(r=>`<div style="margin-top:6px;padding:3px 6px;background:rgba(96,165,250,.15);border-left:3px solid #60a5fa;border-radius:4px;color:#93c5fd;font-size:11px;font-weight:700;line-height:1.35;">📅 ${minHM(r.start_min)} ${esc2(r.guest_name||'')}様 ${r.party_size}名${r.kind==='course'?'・コース':r.kind==='private'?'・貸切':''}</div>`).join('')}
       ${resetBtn}
@@ -545,7 +660,7 @@ function viewTables(){
 
 async function resetTable(id){
   confirm2('このテーブルを空席に戻しますか？<br><span style="font-size:12px;color:#9ca3af;">注文データはクリアされます</span>', async()=>{
-    await syncTable(id,{status:'空席',order_json:'[]',opened_at:null});
+    await syncTable(id,cpatch({status:'空席',order_json:'[]',opened_at:null}));
     showToast('空席に戻しました');
   });
 }
@@ -623,6 +738,7 @@ function viewOrder(){
         <button class="btn-ghost" onclick="openMoveTablePicker()" style="flex:1;padding:7px 0;font-size:12px;">↪️ 卓移動</button>
         <button class="btn-ghost" onclick="openMergeTablePicker()" style="flex:1;padding:7px 0;font-size:12px;">🔗 卓結合</button>
       </div>
+      ${customerChip(t)}
       <div class="order-list">
         ${pending.length>0?'<div style="color:#f5a623;font-size:11px;font-weight:700;margin-bottom:6px;">── 未提供 ──</div>':''}
         ${pendingRows}
@@ -845,8 +961,8 @@ async function doMoveTable(fromId, toId){
   if(!from || !to) return;
   if(to.status!=='空席'){ showToast('移動先は空席のテーブルのみ選べます','error'); return; }
   confirm2(`「${from.name}」の注文を「${to.name}」に移動しますか？`, async()=>{
-    await syncTable(toId, {status:from.status, order_json:from.order_json, opened_at:from.opened_at});
-    await syncTable(fromId, {status:'空席', order_json:'[]', opened_at:null});
+    await syncTable(toId, custReady()?{status:from.status, order_json:from.order_json, opened_at:from.opened_at, customer_id:from.customer_id||null}:{status:from.status, order_json:from.order_json, opened_at:from.opened_at});
+    await syncTable(fromId, cpatch({status:'空席', order_json:'[]', opened_at:null}));
     STATE.selId = toId;
     showToast(`「${from.name}」から「${to.name}」へ移動しました`);
     render();
@@ -861,8 +977,8 @@ async function doMergeTable(intoId, fromId){
     const intoOrder = JSON.parse(into.order_json||'[]');
     const fromOrder = JSON.parse(from.order_json||'[]');
     const mergedOrder = [...intoOrder, ...fromOrder];
-    await syncTable(intoId, {order_json:JSON.stringify(mergedOrder)});
-    await syncTable(fromId, {status:'空席', order_json:'[]', opened_at:null});
+    await syncTable(intoId, (custReady()&&!into.customer_id&&from.customer_id)?{order_json:JSON.stringify(mergedOrder),customer_id:from.customer_id}:{order_json:JSON.stringify(mergedOrder)});
+    await syncTable(fromId, cpatch({status:'空席', order_json:'[]', opened_at:null}));
     showToast(`「${from.name}」を「${into.name}」に結合しました`);
     render();
   });
@@ -943,6 +1059,7 @@ function viewCheckout(){
         <div style="display:flex;justify-content:space-between;color:#f5a623;font-weight:800;font-size:22px;"><span>合計</span><span>${fmt(total)}</span></div>
       </div>
     </div>
+    ${custReady()?`<div class="card" style="margin-bottom:16px;"><div style="color:#9ca3af;font-size:13px;margin-bottom:8px;">お客様(任意)</div>${customerChip(t,true)}</div>`:''}
     <div class="card" style="margin-bottom:16px;">
       <div style="color:#9ca3af;font-size:13px;margin-bottom:8px;">客数</div>
       <div style="display:flex;gap:8px;align-items:center;">
@@ -1049,8 +1166,8 @@ async function doComplete(){
   document.getElementById('complete-btn').disabled=true;
   document.getElementById('complete-btn').textContent='処理中…';
   try{
-    await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order),guests:Number(STATE.checkoutGuests)||null});
-    await syncTable(STATE.selId,{status:'空席',order_json:'[]',opened_at:null});
+    await sdb.insert('sales',{table_id:t.id,table_name:t.name,method,subtotal:sub,tax,total,items_json:JSON.stringify(order),guests:Number(STATE.checkoutGuests)||null,...(custReady()?{customer_id:t.customer_id||null}:{})});
+    await syncTable(STATE.selId,cpatch({status:'空席',order_json:'[]',opened_at:null}));
     const r = await sdb.get('sales',[],'created_at.desc',500);
     if(Array.isArray(r)) STATE.sales=r;
     if(method==='現金') openCashDrawer();
@@ -2392,6 +2509,7 @@ async function refreshPunchQr(){
 // メインrender
 // ═══════════════════════════════════════════
 function render(){
+  loadCustNames();
   const v=STATE.view;
   const tables=STATE.tables;
   const pendingOrders=tables.reduce((n,t)=>n+JSON.parse(t.order_json||'[]').filter(o=>!o.served).length,0);

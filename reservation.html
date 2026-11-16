@@ -390,14 +390,24 @@ async function loadFee(my) {
 function openEditorFrom(id) { const r = (window._feeRows || []).find(x => x.id === id); if (r) { dayCache[r.business_date] = dayCache[r.business_date]; openEditor(id, r); } }
 
 // ---- 顧客(店主のみ) ----
-let custList = [], custStats = {}, custQ = '';
+let custList = [], custStats = {}, custQ = '', custSales = {}, custSort = 'last';
+// 会計の時刻(UTC)→営業日(7:00区切り・日本時間)
+function bizDateOfIso(iso) { const t = new Date(new Date(iso).getTime() + (9 - 7) * 3600 * 1000); return t.toISOString().slice(0, 10); }
 async function loadCust(my) {
-  const [c, r] = await Promise.all([
+  const [c, r, sl] = await Promise.all([
     sb.from('customers').select('*').order('id', { ascending: false }),
-    sb.from('reservations').select('customer_id,status,business_date').not('customer_id', 'is', null)]);
+    sb.from('reservations').select('customer_id,status,business_date').not('customer_id', 'is', null),
+    sb.from('sales').select('customer_id,total,guests,created_at,items_json').not('customer_id', 'is', null).order('created_at', { ascending: false }).limit(5000)]);
   if (c.error) throw c.error;
   if (my !== loadSeq) return;
-  custList = c.data || []; custStats = {};
+  custList = c.data || []; custStats = {}; custSales = {};
+  // 顧客別の売上(SQL未実行で列が無いときは、取得に失敗するだけで他は動く)
+  (sl && !sl.error ? (sl.data || []) : []).forEach(x => {
+    const o = custSales[x.customer_id] = custSales[x.customer_id] || { n: 0, total: 0, last: null, rows: [], items: {} };
+    o.n++; o.total += Number(x.total) || 0; const d = bizDateOfIso(x.created_at); if (!o.last || d > o.last) o.last = d;
+    o.rows.push({ d, total: Number(x.total) || 0, guests: x.guests });
+    try { (JSON.parse(x.items_json || '[]')).forEach(it => { o.items[it.name] = (o.items[it.name] || 0) + (Number(it.qty) || 1); }); } catch (e) {}
+  });
   (r.data || []).forEach(x => { const o = custStats[x.customer_id] = custStats[x.customer_id] || { visits: 0, no_show: 0, same: 0, cancel: 0, last: null }; if (['seated', 'done'].includes(x.status)) o.visits++; if (x.status === 'no_show') o.no_show++; if (x.status === 'same_day_no_show') o.same++; if (x.status === 'cancelled') o.cancel++; if (!o.last || x.business_date > o.last) o.last = x.business_date; });
   renderCust();
 }
@@ -405,8 +415,13 @@ function renderCust() {
   const q = custQ.trim().toLowerCase(), qd = q.replace(/\D/g, '');
   const rows = custList.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.kana || '').toLowerCase().includes(q) || (qd && (c.phone || '').includes(qd)));
   const stTag = c => c.status === 'stopped' ? '<span class="tag bad">受付停止</span>' : c.status === 'caution' ? '<span class="tag fee">要注意</span>' : '';
-  const html = `<input class="search" id="custQ" placeholder="名前・電話番号で検索" value="${esc(custQ)}" oninput="custQ=this.value;renderCustList()">
-    <div class="card" id="custList"></div><div class="note">予約を入れると、電話番号からお客様が自動で登録されます。ここでは、状態(要注意・受付停止)とメモを管理します。</div>`;
+  const html = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input class="search" id="custQ" style="margin:0;flex:1" placeholder="名前・かな・電話番号で検索" value="${esc(custQ)}" oninput="custQ=this.value;renderCustList()">
+    <button class="today" onclick="openNewCust()">＋ 新規登録</button></div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:12px;color:#9ca3af">並び順
+      <select id="custSort" onchange="custSort=this.value;renderCustList()" style="padding:6px;border-radius:8px;background:#0f1117;color:#e8eaf0;border:1px solid #2e3250">
+        <option value="last" ${custSort === 'last' ? 'selected' : ''}>最終来店が新しい順</option><option value="total" ${custSort === 'total' ? 'selected' : ''}>累計売上が多い順</option>
+        <option value="visits" ${custSort === 'visits' ? 'selected' : ''}>来店回数が多い順</option><option value="new" ${custSort === 'new' ? 'selected' : ''}>登録が新しい順</option></select></div>
+    <div class="card" id="custList"></div><div class="note">予約を入れると、電話番号からお客様が自動で登録されます。常連など電話番号のない方は「＋ 新規登録」か、POSの会計画面(店主・店長)から登録できます。売上は、POSの会計でお客様を選んだ分だけ集計されます。</div>`;
   document.getElementById('app').innerHTML = html;
   renderCustList();
 }
@@ -414,11 +429,15 @@ function renderCustList() {
   const q = custQ.trim().toLowerCase(), qd = q.replace(/\D/g, '');
   const rows = custList.filter(c => !q || (c.name || '').toLowerCase().includes(q) || (c.kana || '').toLowerCase().includes(q) || (qd && (c.phone || '').includes(qd)));
   const el = document.getElementById('custList'); if (!el) return;
+  const sa = c => custSales[c.id] || { n: 0, total: 0, last: '' };
+  const key = { last: c => sa(c).last || '', total: c => sa(c).total, visits: c => sa(c).n, new: c => c.id }[custSort] || (c => c.id);
+  rows.sort((a, b) => key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : b.id - a.id);
   el.innerHTML = rows.length ? rows.slice(0, 200).map(c => {
-    const s = custStats[c.id] || { visits: 0, no_show: 0, same: 0, cancel: 0 };
+    const s = custStats[c.id] || { visits: 0, no_show: 0, same: 0, cancel: 0 }, v = sa(c);
     return `<div class="res" onclick="openCust(${c.id})"><div class="bd"><div><span class="nm">${esc(c.name)}</span>
       ${c.status === 'stopped' ? '<span class="tag bad">受付停止</span>' : c.status === 'caution' ? '<span class="tag fee">要注意</span>' : ''}</div>
-      <div class="sub">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits} ・ 無断${s.no_show} ・ 当日無断${s.same} ・ キャンセル${s.cancel}</div>
+      <div class="sub">${v.n ? `会計${v.n}回 ・ 累計${yen(v.total)} ・ 客単価${yen(Math.round(v.total / v.n))} ・ 最終${dateLabel(v.last)}` : '会計の記録なし'}</div>
+      <div class="sub">${esc(c.phone || '電話番号なし')} ・ 予約来店${s.visits} ・ 無断${s.no_show} ・ 当日無断${s.same} ・ キャンセル${s.cancel}</div>
       ${c.status_reason ? `<div class="sub">理由: ${esc(c.status_reason)}</div>` : ''}</div></div>`;
   }).join('') : '<div class="note">該当するお客様はいません</div>';
 }
@@ -428,14 +447,69 @@ function openCust(id) {
   document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
     <h2>お客様情報</h2>
     <div class="note" style="margin-bottom:10px">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits}回 ・ 無断キャンセル${s.no_show}回 ・ 当日無断キャンセル${s.same}回 ・ キャンセル${s.cancel}回</div>
-    <div class="row2"><div class="fld"><label>姓</label><input id="cLast" value="${esc(c.last_name != null ? c.last_name : splitName(c.name).last)}"></div><div class="fld"><label>名</label><input id="cFirst" value="${esc(c.last_name != null ? (c.first_name || '') : splitName(c.name).first)}"></div></div>
+    ${custSalesBox(id)}
+    <div class="row2"><div class="fld"><label>姓</label><input id="cLast" value=""${esc(c.last_name != null ? c.last_name : splitName(c.name).last)}"></div><div class="fld"><label>名</label><input id="cFirst" value="${esc(c.last_name != null ? (c.first_name || '') : splitName(c.name).first)}"></div></div>
     <div class="fld"><label>よみがな</label><input id="cKana" value="${esc(c.kana || '')}"></div>
     <div class="fld"><label>状態</label><div class="seg" id="cSt">
       <button data-v="normal" class="${c.status === 'normal' ? 'on' : ''}">通常</button><button data-v="caution" class="${c.status === 'caution' ? 'on' : ''}">要注意</button><button data-v="stopped" class="${c.status === 'stopped' ? 'on' : ''}">受付停止</button></div></div>
     <div class="fld"><label>理由(要注意・受付停止のとき。予約入力の画面に表示されます)</label><input id="cReason" value="${esc(c.status_reason || '')}" placeholder="例: 2回連続で無断キャンセル"></div>
     <div class="fld"><label>メモ(店主のみ)</label><textarea id="cNotes" rows="3">${esc(c.notes || '')}</textarea></div>
+    <button class="chip" style="width:100%;padding:10px;margin:2px 0 8px" onclick="openMergeCust(${id})">🔗 同じ人の別データを、このお客様に統合する</button>
     <div class="btns"><button class="btn-cancel" onclick="closeSheet()">閉じる</button><button class="btn-save" onclick="saveCust(${id})">保存</button></div></div></div>`;
   document.querySelectorAll('#cSt button').forEach(b => b.onclick = () => { document.querySelectorAll('#cSt button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
+}
+function custSalesBox(id) {
+  const v = custSales[id];
+  if (!v) return '<div class="note" style="margin-bottom:10px">会計の記録はまだありません(POSの会計でお客様を選ぶと集計されます)</div>';
+  const top = Object.entries(v.items).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, q]) => `${esc(n)}×${q}`).join('、');
+  const recent = v.rows.slice(0, 5).map(r => `${dateLabel(r.d)} ${yen(r.total)}${r.guests ? '(' + r.guests + '名)' : ''}`).join(' / ');
+  return `<div class="card" style="padding:10px;margin-bottom:10px"><div style="font-weight:700;margin-bottom:4px">💴 会計の記録</div>
+    <div class="note">会計${v.n}回 ・ 累計${yen(v.total)} ・ 客単価${yen(Math.round(v.total / v.n))} ・ 最終来店${dateLabel(v.last)}</div>
+    <div class="note">よく頼むメニュー: ${top || '—'}</div><div class="note">直近: ${recent}</div></div>`;
+}
+function openNewCust() {
+  document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
+    <h2>お客様の新規登録</h2>
+    <div class="row2"><div class="fld"><label>姓(必須)</label><input id="nLast" placeholder="田中"></div><div class="fld"><label>名</label><input id="nFirst" placeholder="太郎"></div></div>
+    <div class="fld"><label>よみがな(検索しやすくなります)</label><input id="nKana" placeholder="たなか たろう"></div>
+    <div class="fld"><label>電話番号(わかれば。ハイフンなし)</label><input id="nPhone" type="tel" inputmode="numeric" placeholder="09000000000" oninput="this.value=normPhone(this.value)"></div>
+    <div class="note" style="margin-bottom:8px">電話番号がなくても登録できます。同姓同名の方が重なったときは、あとから統合できます。</div>
+    <div class="btns"><button class="btn-cancel" onclick="closeSheet()">閉じる</button><button class="btn-save" onclick="saveNewCust()">登録</button></div></div></div>`;
+}
+async function saveNewCust() {
+  const g = id => document.getElementById(id).value.trim(), last = g('nLast');
+  if (!last) return toast('姓を入力してください');
+  const { data, error } = await sb.rpc('pos_create_customer', { p_last: last, p_first: g('nFirst'), p_kana: g('nKana'), p_phone: g('nPhone') });
+  if (error) return toast('登録に失敗しました: ' + (error.message || error));
+  if (!data || !data.ok) return toast((data && data.message) || '登録できませんでした');
+  closeSheet(); toast(data.existing ? '同じ電話番号のお客様が既に登録されています' : '登録しました'); loadView(true);
+}
+let mergeKeep = null;
+function openMergeCust(keepId) {
+  mergeKeep = keepId; const c = custList.find(x => x.id === keepId);
+  document.getElementById('sheetHost').innerHTML = `<div class="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet">
+    <h2>お客様の統合</h2>
+    <div class="note" style="margin-bottom:8px">「${esc(c.name)}」に、同じ人の別データをまとめます。選んだ方のデータは削除され、会計・予約の記録は「${esc(c.name)}」に移ります。電話番号が両方にある場合は、別人の可能性があるため統合できません。</div>
+    <input class="search" id="mQ" placeholder="統合する(消える)お客様を検索" oninput="renderMergeList()"><div class="card" id="mList"></div>
+    <div class="btns"><button class="btn-cancel" onclick="openCust(${keepId})">戻る</button></div></div></div>`;
+  renderMergeList();
+}
+function renderMergeList() {
+  const q = (document.getElementById('mQ').value || '').trim().toLowerCase().replace(/[\s　]/g, ''), keep = custList.find(x => x.id === mergeKeep);
+  const rows = custList.filter(c => c.id !== mergeKeep && (!q || (c.name || '').toLowerCase().replace(/[\s　]/g, '').includes(q) || (c.kana || '').toLowerCase().replace(/[\s　]/g, '').includes(q)));
+  document.getElementById('mList').innerHTML = rows.length ? rows.slice(0, 50).map(c => {
+    const ng = keep.phone && c.phone, v = custSales[c.id];
+    return `<div class="res" style="${ng ? 'opacity:.45' : ''}" onclick="${ng ? "toast('電話番号が両方にあるため統合できません')" : `doMergeCust(${c.id})`}"><div class="bd"><div><span class="nm">${esc(c.name)}</span></div>
+      <div class="sub">${esc(c.phone || '電話番号なし')}${v ? ' ・ 会計' + v.n + '回' : ''}</div></div></div>`;
+  }).join('') : '<div class="note">該当するお客様はいません</div>';
+}
+async function doMergeCust(dropId) {
+  const keep = custList.find(x => x.id === mergeKeep), drop = custList.find(x => x.id === dropId);
+  if (!confirm(`「${drop.name}」を「${keep.name}」に統合します。「${drop.name}」のデータは削除されます。よろしいですか?`)) return;
+  const { data, error } = await sb.rpc('merge_customers', { p_keep: mergeKeep, p_drop: dropId });
+  if (error) return toast('統合に失敗しました: ' + (error.message || error));
+  if (!data || !data.ok) return toast((data && data.message) || '統合できませんでした');
+  closeSheet(); toast('統合しました'); loadView(true);
 }
 async function saveCust(id) {
   const last = document.getElementById('cLast').value.trim(), first = document.getElementById('cFirst').value.trim();
