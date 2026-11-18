@@ -361,6 +361,16 @@ const PROXY_SECRET = "S-djkcI9lY9yqhWupxMrQct4f9xFyrSP";
 
 let expenses = [];
 let vendorMap = {};
+// 毎月名前が変わる請求(電気10月分+番号 など)は学習では当たらないので、キーワードで科目を決める
+const KEYWORD_RULES = [
+  [/関西電力|電力|^電気|電気(料金|代|\d{1,2}月分)|水道|下水|大阪ガス|都市ガス|プロパン|ガス(料金|代|\d{1,2}月分)/, '水道光熱費']
+];
+function guessCat(vendor){
+  const v = (vendor||'').trim();
+  if(vendorMap[v]) return vendorMap[v];
+  for(const [re,cat] of KEYWORD_RULES){ if(re.test(v)) return cat; }
+  return null;
+}
 let currentImageBase64 = null;
 let currentImageType = 'image/jpeg';
 let currentExtract = null;
@@ -673,7 +683,7 @@ function renderReceiptForms(receipts){
     ? `<div style="font-size:12px;color:var(--sage);margin-bottom:10px;">🧾 ${receipts.length}件のレシートを検出しました。内容を確認してください(不要な項目はチェックを外せます)</div>`
     : '';
   const cards = receipts.map((ex, i)=>{
-    const learnedCat = vendorMap[ex.vendor];
+    const learnedCat = guessCat(ex.vendor);
     const finalCat = learnedCat || ex.suggested_category || CATEGORIES[0];
     return `
     <div class="preview-card">
@@ -1257,7 +1267,7 @@ async function analyzePdfStatement(base64){
       date: t.date || '',
       vendor: (t.vendor||'').trim(),
       amount: Number(t.amount)||0,
-      category: vendorMap[(t.vendor||'').trim()] || '雑費',
+      category: guessCat(t.vendor) || '雑費',
       checked: importCardType==='corp'
     })).filter(r=>r.amount && r.vendor);
     document.getElementById('importMapArea').innerHTML =
@@ -1364,7 +1374,7 @@ function buildImportPreview(){
       const vendor = (r[vi]||'').trim();
       const amount = Number((r[ai]||'').replace(/[^\d.\-]/g,''))||0;
       const date = normalizeDate(r[di]);
-      return { date, vendor, amount, category: vendorMap[vendor] || '雑費', checked: importCardType==='corp' };
+      return { date, vendor, amount, category: guessCat(vendor) || '雑費', checked: importCardType==='corp' };
     })
     .filter(r=>r.amount!==0 && r.vendor)
     .filter(r=>!excludeKw.some(k=>r.vendor.includes(k)))
@@ -1407,7 +1417,7 @@ function renderImportPreview(){
 }
 
 async function suggestCategoriesAI(){
-  const targets = currentImportRows.filter(r=>!vendorMap[r.vendor]);
+  const targets = currentImportRows.filter(r=>!guessCat(r.vendor));
   if(targets.length===0){ toast('すべて学習済みの店名です'); return; }
   const uniqueVendors = [...new Set(targets.map(r=>r.vendor))];
   toast('AIが科目を提案中...');
@@ -1439,7 +1449,7 @@ ${uniqueVendors.join('\n')}`
     const clean = text.replace(/```json|```/g,'').trim();
     const map = JSON.parse(clean);
     currentImportRows.forEach(r=>{
-      if(!vendorMap[r.vendor] && map[r.vendor] && CATEGORIES.includes(map[r.vendor])){
+      if(!guessCat(r.vendor) && map[r.vendor] && CATEGORIES.includes(map[r.vendor])){
         r.category = map[r.vendor];
       }
     });
