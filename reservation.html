@@ -449,6 +449,7 @@ function openCust(id) {
     <div class="note" style="margin-bottom:10px">${esc(c.phone || '電話番号なし')} ・ 来店${s.visits}回 ・ 無断キャンセル${s.no_show}回 ・ 当日無断キャンセル${s.same}回 ・ キャンセル${s.cancel}回</div>
     ${custSalesBox(id)}
     <div class="row2"><div class="fld"><label>姓</label><input id="cLast" value="${esc(c.last_name != null ? c.last_name : splitName(c.name).last)}"></div><div class="fld"><label>名</label><input id="cFirst" value="${esc(c.last_name != null ? (c.first_name || '') : splitName(c.name).first)}"></div></div>
+    <div class="fld"><label>電話番号(後から分かったときはここに入力。ハイフンなし)</label><input id="cPhone" type="tel" inputmode="numeric" value="${esc(c.phone || '')}" placeholder="09000000000" oninput="this.value=normPhone(this.value)"></div>
     <div class="fld"><label>よみがな</label><input id="cKana" value="${esc(c.kana || '')}"></div>
     <div class="fld"><label>状態</label><div class="seg" id="cSt">
       <button data-v="normal" class="${c.status === 'normal' ? 'on' : ''}">通常</button><button data-v="caution" class="${c.status === 'caution' ? 'on' : ''}">要注意</button><button data-v="stopped" class="${c.status === 'stopped' ? 'on' : ''}">受付停止</button></div></div>
@@ -518,6 +519,13 @@ async function saveCust(id) {
   const st = document.querySelector('#cSt button.on').dataset.v, reason = document.getElementById('cReason').value.trim();
   if (st !== 'normal' && !reason) return toast('理由を入力してください');
   const old = custList.find(x => x.id === id);
+  const ph = normPhone(document.getElementById('cPhone').value);
+  if (ph && (!old || old.phone !== ph)) {
+    if (ph.length < 8) return toast('電話番号は8桁以上で入力してください');
+    const { data: pr, error: pe } = await sb.rpc('set_customer_phone', { p_id: id, p_phone: ph });
+    if (pe) return toast('電話番号の保存に失敗しました: ' + (pe.message || pe));
+    if (!pr || !pr.ok) return toast(pr && pr.code === 'duplicate' ? 'この電話番号は「' + pr.name + '」さんに登録済みです。同じ人なら、その方の詳細から統合してください' : ((pr && pr.message) || '電話番号を保存できませんでした'));
+  }
   const patch = { name, last_name: last, first_name: first || null, kana: document.getElementById('cKana').value.trim() || null, notes: document.getElementById('cNotes').value.trim() || null, status: st, status_reason: st === 'normal' ? null : reason, updated_at: new Date().toISOString() };
   if (old && old.status !== st) patch.status_changed_at = new Date().toISOString();
   const { error } = await sb.from('customers').update(patch).eq('id', id);
