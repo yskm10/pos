@@ -413,7 +413,7 @@ async function pickResvCustomer(rid){
 let _custTimer=null;
 function openCustomerPicker(q0){
   const old=document.getElementById('custPick'); if(old) old.remove();
-  const canReg=['owner','manager'].includes(CURRENT_ROLE);
+  const canReg=['owner','manager','register'].includes(CURRENT_ROLE);
   const ov=document.createElement('div'); ov.id='custPick';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:60px 12px 12px;';
   ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
@@ -426,7 +426,7 @@ function openCustomerPicker(q0){
         ${canReg?'<button class="btn-ghost" onclick="custShowForm()" style="flex:1;padding:10px 0;">＋ 新規登録</button>':''}
         <button class="btn-ghost" onclick="document.getElementById(\'custPick\').remove()" style="flex:1;padding:10px 0;">閉じる</button>
       </div>
-      ${canReg?'':'<div style="color:#6b7280;font-size:11px;margin-top:8px;">新しいお客様の登録は、店主・店長が行います</div>'}
+      ${canReg?'':'<div style="color:#6b7280;font-size:11px;margin-top:8px;">新しいお客様の登録は、店主・店長・レジが行います</div>'}
     </div></div>`;
   document.body.appendChild(ov);
   const qi=document.getElementById('cpQ');
