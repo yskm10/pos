@@ -273,6 +273,7 @@
   <button class="tab" data-tab="list">一覧</button>
   <button class="tab" data-tab="import">取込</button>
   <button class="tab" data-tab="pettycash">小口現金</button>
+  <button class="tab" data-tab="deposit">預り金</button>
   <button class="tab" data-tab="summary">集計</button>
 </div>
 
@@ -331,6 +332,14 @@
     <button class="btn btn-ghost" onclick="openCountForm()">月末の実査(現金を数えて差異を調整)</button>
     <div id="pettyFormArea"></div>
     <div id="pettyLedgerArea" style="margin-top:16px;"></div>
+  </div>
+
+  <!-- 預り金パネル -->
+  <div class="panel" id="panel-deposit">
+    <div class="note-line" style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;">コンペ参加費など、あとで精算するお金です。受け取った分(入金)と、支払った分(科目が「預り金」の経費)をコンペ名ごとに比べて、残りを出します。</div>
+    <button class="btn btn-primary" onclick="openDepositForm()">預り金の入金を記録</button>
+    <div id="depositFormArea"></div>
+    <div id="depositArea" style="margin-top:14px;"></div>
   </div>
 
   <!-- 集計パネル -->
@@ -471,7 +480,7 @@ async function loadData(){
     if(mapRes.error) throw mapRes.error;
     expenses = (expRes.data||[]).map(e=>({
       id: e.id, date: e.date, amount: Number(e.amount), vendor: e.vendor,
-      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt
+      category: e.category, memo: e.memo||'', payment: e.payment, hasReceipt: !!e.has_receipt, groupName: e.group_name||''
     }));
     vendorMap = {};
     (mapRes.data||[]).forEach(v=>{ vendorMap[v.vendor] = v.category; });
@@ -502,6 +511,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
     if(tab.dataset.tab==='list') renderList();
     if(tab.dataset.tab==='summary') renderSummary();
+    if(tab.dataset.tab==='deposit') loadDeposits();
   });
 });
 
@@ -724,6 +734,118 @@ function renderReceiptForms(receipts){
 function selectPay(btn){
   btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));
   btn.classList.add('sel');
+}
+
+// ---- 預り金(コンペ別の入金・支出・残り) ----
+let depositIns = [];
+async function loadDeposits(){
+  const area = document.getElementById('depositArea');
+  area.innerHTML = '<div class="loading">読み込み中...</div>';
+  const { data, error } = await sb.from('deposit_in').select('*').order('date', {ascending:false}).order('created_at', {ascending:false});
+  if(error){ area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(error.message||String(error))}</div>`; return; }
+  depositIns = (data||[]).map(d=>({ id:d.id, date:d.date, amount:Number(d.amount), group:d.group_name||'', memo:d.memo||'' }));
+  renderDeposits();
+}
+function depositGroupNames(){
+  const set = new Set();
+  depositIns.forEach(d=>{ if(d.group) set.add(d.group); });
+  expenses.forEach(e=>{ if(e.category==='預り金' && e.groupName) set.add(e.groupName); });
+  return [...set];
+}
+function renderDeposits(){
+  const area = document.getElementById('depositArea');
+  const outs = expenses.filter(e=>e.category==='預り金');
+  const names = depositGroupNames();
+  const yen = n=>'¥'+Number(n).toLocaleString();
+  let html = '';
+  const unset = outs.filter(e=>!e.groupName);
+  if(unset.length){
+    html += `<div class="sum-block"><div class="sum-title">コンペ名が未設定の預り金(支出)</div>` + unset.map(e=>`
+      <div style="padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;">
+        <div style="display:flex;justify-content:space-between;"><span>${e.date} ${escapeHtml(e.vendor)}</span><b>${yen(e.amount)}</b></div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <input list="depGroups" id="grp-${e.id}" placeholder="コンペ名" style="flex:1;padding:6px;border:1px solid var(--line);font-size:13px;">
+          <button class="btn btn-stamp" style="width:auto;padding:6px 14px;margin-top:0;font-size:12px;" onclick="setExpenseGroup('${e.id}')">設定</button>
+        </div></div>`).join('') + `</div>`;
+  }
+  if(names.length===0 && !unset.length){
+    html += '<div class="empty">まだ預り金の記録がありません</div>';
+  }
+  names.forEach(g=>{
+    const ins = depositIns.filter(d=>d.group===g), ex = outs.filter(e=>e.groupName===g);
+    const inSum = ins.reduce((a,b)=>a+b.amount,0), outSum = ex.reduce((a,b)=>a+b.amount,0), rest = inSum - outSum;
+    const restLabel = rest===0 ? '精算済み(差額なし)' : rest>0 ? `手元に残っている預かり金 ${yen(rest)}` : `立替・持ち出し ${yen(-rest)}`;
+    html += `<div class="sum-block">
+      <div class="sum-title">${escapeHtml(g)}</div>
+      <div class="sum-row"><span>入金(受け取った分)</span><span>${yen(inSum)}</span></div>
+      <div class="sum-row"><span>支出(支払った分)</span><span>${yen(outSum)}</span></div>
+      <div class="sum-row" style="font-weight:700;"><span>残り</span><span>${rest<0?'-':''}${yen(Math.abs(rest))}</span></div>
+      <div style="font-size:12px;color:${rest===0?'var(--sage)':'var(--stamp)'};margin:4px 0 8px;">${restLabel}</div>
+      ${ins.map(d=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-top:1px dashed var(--line);">
+        <span>入金 ${d.date}${d.memo?' ・ '+escapeHtml(d.memo):''}</span>
+        <span>${yen(d.amount)} <button class="btn btn-ghost" style="width:auto;padding:2px 8px;margin:0 0 0 6px;font-size:11px;color:var(--stamp);border-color:var(--stamp);" onclick="deleteDeposit('${d.id}')">削除</button></span></div>`).join('')}
+      ${ex.map(e=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-top:1px dashed var(--line);">
+        <span>支出 ${e.date} ${escapeHtml(e.vendor)}</span>
+        <span>${yen(e.amount)} <button class="btn btn-ghost" style="width:auto;padding:2px 8px;margin:0 0 0 6px;font-size:11px;" onclick="clearExpenseGroup('${e.id}')">コンペ名を外す</button></span></div>`).join('')}
+    </div>`;
+  });
+  html += `<datalist id="depGroups">${names.map(n=>`<option value="${escapeHtml(n)}">`).join('')}</datalist>`;
+  area.innerHTML = html;
+}
+function openDepositForm(){
+  const names = depositGroupNames();
+  document.getElementById('depositFormArea').innerHTML = `
+    <div class="preview-card">
+      <div class="sum-title">預り金の入金を記録</div>
+      <div class="field"><label>日付</label><input type="date" id="dep-date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>金額</label><input type="number" id="dep-amount" inputmode="numeric"></div>
+      <div class="field"><label>コンペ名(同じ名前でまとめます。例: 11月吉川ロイヤルコンペ)</label><input list="depGroups2" id="dep-group"><datalist id="depGroups2">${names.map(n=>`<option value="${escapeHtml(n)}">`).join('')}</datalist></div>
+      <div class="field"><label>摘要(例: 参加者◯名分)</label><input type="text" id="dep-memo"></div>
+      <button class="btn btn-stamp" id="depSubmitBtn" onclick="submitDeposit()">記録する</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('depositFormArea').innerHTML=''">キャンセル</button>
+    </div>`;
+}
+let isSavingDeposit = false;
+async function submitDeposit(){
+  if(isSavingDeposit) return;
+  const date = document.getElementById('dep-date').value;
+  const amount = Number(document.getElementById('dep-amount').value)||0;
+  const group = document.getElementById('dep-group').value.trim();
+  const memo = document.getElementById('dep-memo').value.trim();
+  if(!date || amount<=0 || !group){ toast('日付・金額・コンペ名を入力してください'); return; }
+  isSavingDeposit = true;
+  const btn = document.getElementById('depSubmitBtn'); if(btn){ btn.disabled = true; btn.textContent = '記録中...'; }
+  try{
+    const { data: u } = await sb.auth.getUser();
+    const { error } = await sb.from('deposit_in').insert([{ date, amount, group_name: group, memo: memo||null, created_by: u && u.user ? u.user.id : undefined }]);
+    if(error) throw error;
+    document.getElementById('depositFormArea').innerHTML = '';
+    toast('入金を記録しました');
+    await loadDeposits();
+  }catch(e){
+    toast('記録に失敗しました: ' + (e.message||String(e)));
+    if(btn){ btn.disabled = false; btn.textContent = '記録する'; }
+  }finally{ isSavingDeposit = false; }
+}
+async function deleteDeposit(id){
+  if(!confirm('この入金の記録を削除しますか？(元に戻せません)')) return;
+  const { error } = await sb.from('deposit_in').delete().eq('id', id);
+  if(error){ toast('削除に失敗しました: ' + (error.message||String(error))); return; }
+  toast('削除しました'); loadDeposits();
+}
+async function setExpenseGroup(id){
+  const el = document.getElementById('grp-'+id); const g = el ? el.value.trim() : '';
+  if(!g){ toast('コンペ名を入力してください'); return; }
+  const { error } = await sb.from('expenses').update({group_name: g}).eq('id', id);
+  if(error){ toast('保存に失敗しました: ' + (error.message||String(error))); return; }
+  const ex = expenses.find(e=>e.id===id); if(ex) ex.groupName = g;
+  toast('コンペ名を設定しました'); renderDeposits();
+}
+async function clearExpenseGroup(id){
+  const { error } = await sb.from('expenses').update({group_name: null}).eq('id', id);
+  if(error){ toast('保存に失敗しました: ' + (error.message||String(error))); return; }
+  const ex = expenses.find(e=>e.id===id); if(ex) ex.groupName = '';
+  renderDeposits();
 }
 
 let pettyCashExpenseMode = false;

@@ -439,7 +439,7 @@ async function loadSummary(){
     const salesTotalExcl = sumBy(sales.data,'subtotal');
     const salesLYTotal = sumBy(salesLY.data,'total');
     const salesLYTotalExcl = sumBy(salesLY.data,'subtotal');
-    const included = (expRes.data||[]).filter(e=>!e.excluded);
+    const included = (expRes.data||[]).filter(e=>!e.excluded && e.category!=='預り金'); // 預り金は費用ではない
     let purchase=0, rent=0, other=0;
     included.forEach(e=>{
       const amt = Number(e.amount)||0;
@@ -499,7 +499,7 @@ async function loadLedger(){
       .gte('date', r.dateStart).lt('date', r.dateEnd)
       .order('date', {ascending:false});
     if(error) throw error;
-    ledgerExpenses = data||[];
+    ledgerExpenses = (data||[]).filter(e=>e.category!=='預り金');
     renderLedger();
   }catch(e){
     area.innerHTML = `<div class="err">読み込みに失敗しました: ${escapeHtml(e.message||String(e))}</div>`;
