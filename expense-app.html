@@ -1202,8 +1202,13 @@ async function readFileSmart(file){
   }
 }
 
+let pdfBusy = false;
 async function analyzePdfStatement(base64){
-  document.getElementById('importMapArea').innerHTML = '<div class="loading">PDFを解析中...(0件取得)</div>';
+  pdfBusy = true;
+  try{ await analyzePdfStatement2(base64); } finally { pdfBusy = false; }
+}
+async function analyzePdfStatement2(base64){
+  document.getElementById('importMapArea').innerHTML = '<div class="loading">PDFを解析中...(0件取得)。1〜2分かかることがあります。そのままお待ちください(「明細を読み込む」ボタンは押さなくて大丈夫です)</div>';
   document.getElementById('importPreviewArea').innerHTML = '';
   const yearHint = document.getElementById('importYear').value;
   const initialPrompt =
@@ -1313,6 +1318,7 @@ function findHeaderRowIndex(rows){
 }
 
 function parseImport(){
+  if(pdfBusy){ toast('PDFを解析中です。完了までお待ちください'); return; }
   const text = document.getElementById('csvText').value.trim();
   if(!text){ toast('CSVを貼り付けるかファイルを選択してください'); return; }
   const allRows = parseCSV(text);
