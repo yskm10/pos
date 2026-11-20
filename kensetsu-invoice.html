@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>建設請求書</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --paper:#F3EEE0;
+    --paper-dark:#E8E1CC;
+    --ink:#1C2333;
+    --ink-soft:#5B5546;
+    --stamp:#A82C2C;
+    --stamp-dark:#7E1F1F;
+    --sage:#4A6B5A;
+    --line:#D8D0B8;
+    --white:#FBF9F3;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at top, #FAF7EC 0%, var(--paper) 60%);
+    color:var(--ink);
+    font-family:'Noto Sans JP',sans-serif;
+    min-height:100vh;
+    padding-bottom:60px;
+  }
+  .roll{
+    background:var(--ink);
+    color:var(--paper);
+    padding:28px 20px 22px;
+    text-align:center;
+    position:relative;
+  }
+  .roll::after{
+    content:"";
+    position:absolute;
+    left:0;right:0;bottom:-10px;
+    height:20px;
+    background:var(--ink);
+    clip-path:polygon(0 0,4% 100%,8% 0,12% 100%,16% 0,20% 100%,24% 0,28% 100%,32% 0,36% 100%,40% 0,44% 100%,48% 0,52% 100%,56% 0,60% 100%,64% 0,68% 100%,72% 0,76% 100%,80% 0,84% 100%,88% 0,92% 100%,96% 0,100% 100%);
+  }
+  .roll h1{
+    font-family:'Shippori Mincho',serif;
+    font-size:26px;
+    letter-spacing:0.15em;
+    margin:0 0 4px;
+    font-weight:700;
+  }
+  .roll p{
+    margin:0;
+    font-size:11px;
+    letter-spacing:0.1em;
+    opacity:0.6;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .tabs{
+    display:flex;
+    justify-content:center;
+    gap:0;
+    margin:30px auto 20px;
+    max-width:420px;
+    padding:0 16px;
+  }
+  .tab{
+    flex:1;
+    text-align:center;
+    padding:10px 0;
+    font-size:14px;
+    font-weight:700;
+    letter-spacing:0.1em;
+    color:var(--ink-soft);
+    border-bottom:2px solid var(--line);
+    cursor:pointer;
+    background:none;
+    font-family:'Noto Sans JP',sans-serif;
+  }
+  .tab.active{
+    color:var(--stamp);
+    border-bottom:2px solid var(--stamp);
+  }
+  .wrap{max-width:460px;margin:0 auto;padding:0 16px;}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .slot{
+    border:2px dashed var(--line);
+    border-radius:6px;
+    background:var(--white);
+    text-align:center;
+    padding:34px 16px;
+    cursor:pointer;
+    transition:border-color .2s;
+  }
+  .slot:hover{border-color:var(--stamp);}
+  .slot svg{width:34px;height:34px;stroke:var(--ink-soft);margin-bottom:10px;}
+  .slot p{margin:0;font-size:13px;color:var(--ink-soft);letter-spacing:.05em;}
+  #fileInput{display:none;}
+
+  .preview-card{
+    background:var(--white);
+    border-radius:2px;
+    padding:16px;
+    margin-top:16px;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  .preview-card img{width:100%;border-radius:2px;display:block;max-height:220px;object-fit:cover;}
+
+  .btn{
+    display:block;
+    width:100%;
+    padding:13px;
+    border:none;
+    border-radius:2px;
+    font-family:'Noto Sans JP',sans-serif;
+    font-weight:700;
+    font-size:14px;
+    letter-spacing:.08em;
+    cursor:pointer;
+    margin-top:12px;
+  }
+  .btn-primary{background:var(--ink);color:var(--paper);}
+  .btn-primary:disabled{opacity:.4;cursor:default;}
+  .btn-stamp{background:var(--stamp);color:var(--white);}
+  .btn-ghost{background:none;color:var(--ink-soft);border:1px solid var(--line);}
+
+  .field{margin-top:14px;}
+  .field label{
+    display:block;font-size:11px;color:var(--ink-soft);
+    letter-spacing:.1em;margin-bottom:4px;font-weight:700;
+  }
+  .field input,.field select{
+    width:100%;padding:10px;border:1px solid var(--line);
+    border-radius:2px;font-size:14px;background:var(--white);
+    font-family:'JetBrains Mono',monospace;color:var(--ink);
+  }
+  .field select{font-family:'Noto Sans JP',sans-serif;}
+  .field .learned{
+    font-size:10px;color:var(--sage);margin-top:3px;font-family:'Noto Sans JP',sans-serif;
+  }
+  .row2{display:flex;gap:10px;}
+  .row2 .field{flex:1;}
+  .paytoggle{display:flex;gap:8px;margin-top:6px;}
+  .paytoggle button{
+    flex:1;padding:9px;border:1px solid var(--line);background:var(--white);
+    border-radius:2px;font-size:13px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;
+  }
+  .paytoggle button.sel{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
+  .receipt{
+    background:var(--white);
+    margin-top:14px;
+    padding:14px 16px 20px;
+    position:relative;
+    box-shadow:0 1px 3px rgba(0,0,0,.08);
+    clip-path:polygon(0 0,100% 0,100% 96%,97% 100%,94% 96%,91% 100%,88% 96%,85% 100%,82% 96%,79% 100%,76% 96%,73% 100%,70% 96%,67% 100%,64% 96%,61% 100%,58% 96%,55% 100%,52% 96%,49% 100%,46% 96%,43% 100%,40% 96%,37% 100%,34% 96%,31% 100%,28% 96%,25% 100%,22% 96%,19% 100%,16% 96%,13% 100%,10% 96%,7% 100%,4% 96%,0 100%);
+  }
+  .receipt-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  .receipt-date{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-soft);}
+  .receipt-vendor{font-weight:700;font-size:15px;margin:2px 0 6px;}
+  .receipt-cat{
+    display:inline-block;font-size:11px;background:var(--paper-dark);
+    padding:2px 8px;border-radius:10px;color:var(--ink-soft);letter-spacing:.05em;
+  }
+  .receipt-amount{
+    font-family:'JetBrains Mono',monospace;font-weight:700;font-size:20px;
+    text-align:right;white-space:nowrap;
+  }
+  .stamp-mark{
+    position:absolute;top:10px;right:14px;
+    width:38px;height:38px;border:2px solid var(--stamp);
+    border-radius:50%;color:var(--stamp);
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:700;transform:rotate(-12deg);
+    opacity:.85;letter-spacing:.02em;
+  }
+  .receipt-pay{font-size:10px;color:var(--ink-soft);margin-top:2px;}
+
+  .empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:40px 10px;line-height:1.8;}
+
+  .month-select{
+    display:flex;align-items:center;justify-content:center;gap:14px;margin:6px 0 18px;
+  }
+  .month-select button{background:none;border:none;font-size:18px;color:var(--ink-soft);cursor:pointer;}
+  .month-select span{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px;letter-spacing:.05em;}
+
+  .sum-block{background:var(--white);padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .sum-title{font-size:11px;color:var(--ink-soft);letter-spacing:.1em;margin-bottom:8px;font-weight:700;}
+  .sum-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .sum-row:last-child{border-bottom:none;}
+  .sum-row span:last-child{font-family:'JetBrains Mono',monospace;font-weight:600;}
+  .sum-total{display:flex;justify-content:space-between;padding-top:10px;margin-top:4px;border-top:2px solid var(--ink);font-weight:700;font-size:15px;}
+  .sum-total span:last-child{font-family:'JetBrains Mono',monospace;}
+
+  .sum-row-3{
+    display:grid;grid-template-columns:1.2fr 0.9fr 0.9fr 0.9fr 0.9fr;
+    gap:4px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px;
+  }
+  .sum-row-3:last-child{border-bottom:none;}
+  .sum-row-3 span:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;}
+  .sum-row-3-head{
+    font-size:10px;color:var(--ink-soft);letter-spacing:.05em;font-weight:700;
+    border-bottom:2px solid var(--ink);padding-bottom:6px;
+  }
+  .sum-row-3-head span:not(:first-child){font-family:'Noto Sans JP',sans-serif;}
+  .sum-row-3-total{
+    border-top:2px solid var(--ink);border-bottom:none;margin-top:2px;padding-top:9px;font-weight:700;font-size:13px;
+  }
+  .sum-row-3-total span:not(:first-child){font-size:12px;}
+
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:var(--paper);padding:10px 20px;
+    border-radius:20px;font-size:13px;box-shadow:0 3px 10px rgba(0,0,0,.2);
+    opacity:0;transition:opacity .3s;pointer-events:none;z-index:50;
+  }
+  .toast.show{opacity:1;}
+  .loading{text-align:center;padding:16px;font-size:12px;color:var(--ink-soft);font-family:'JetBrains Mono',monospace;}
+  .err{color:var(--stamp);font-size:12px;margin-top:8px;}
+
+  .login-screen{
+    position:fixed;inset:0;background:var(--paper);z-index:200;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .login-card{
+    background:var(--white);padding:32px 24px;max-width:340px;width:100%;
+    box-shadow:0 2px 12px rgba(0,0,0,.1);text-align:center;
+  }
+  .login-card h2{
+    font-family:'Shippori Mincho',serif;font-size:20px;margin:0 0 4px;letter-spacing:.1em;
+  }
+  .login-card p{font-size:11px;color:var(--ink-soft);margin:0 0 20px;font-family:'JetBrains Mono',monospace;}
+  .login-card .field{text-align:left;}
+  .logout-btn{
+    position:absolute;top:14px;right:14px;background:none;border:none;
+    color:var(--paper);opacity:.85;font-size:18px;cursor:pointer;letter-spacing:.05em;text-decoration:none;padding:4px 6px;
+    font-family:'Noto Sans JP',sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<div class="login-screen" id="loginScreen" style="display:none;">
+  <div class="login-card">
+    <h2>建設請求書</h2>
+    <p>INVOICE · MEDICOM</p>
+    <div class="field"><label>メールアドレス</label><input type="email" id="login-email" autocomplete="username"></div>
+    <div class="field"><label>パスワード</label><input type="password" id="login-password" autocomplete="current-password"></div>
+    <div id="loginErr"></div>
+    <button class="btn btn-stamp" id="loginBtn">ログイン</button>
+  </div>
+</div>
+
+<div class="roll" style="position:relative;">
+  <button class="logout-btn" onclick="location.reload()" title="更新" style="right:50px;">🔄</button>
+  <a class="logout-btn" href="./home.html" title="ホームへ">🏠</a>
+  <h1>建設請求書</h1>
+  <p>INVOICE · MEDICOM CONSTRUCTION</p>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="input">入力</button>
+  <button class="tab" data-tab="list">一覧</button>
+  <button class="tab" data-tab="summary">集計</button>
+</div>
+
+<div class="wrap" id="mainWrap" style="display:none;">
+
+  <div class="panel active" id="panel-input">
+    <div class="field">
+      <label>種類</label>
+      <div class="paytoggle" id="kindToggle">
+        <button type="button" class="sel" data-kind="received" onclick="selectKind(this)">受取(支払う請求書)</button>
+        <button type="button" data-kind="issued" onclick="selectKind(this)">発行(請求する側)</button>
+      </div>
+    </div>
+    <div class="slot" id="slot" onclick="document.getElementById('fileInput').click()">
+      <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3.75 3.75M12 9.75l3.75 3.75M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
+      <p>請求書のPDFまたは写真をアップロード</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*,application/pdf,.pdf" style="display:none;">
+    <button class="btn btn-ghost" onclick="manualEntry()">ファイルなしで手入力する</button>
+    <div id="previewArea"></div>
+    <div id="formArea"></div>
+  </div>
+
+  <div class="panel" id="panel-list">
+    <div class="paytoggle" id="listKind" style="margin-bottom:8px;">
+      <button type="button" class="sel" data-k="all" onclick="setListFilter('kind',this)">すべて</button>
+      <button type="button" data-k="received" onclick="setListFilter('kind',this)">受取</button>
+      <button type="button" data-k="issued" onclick="setListFilter('kind',this)">発行</button>
+    </div>
+    <div class="paytoggle" id="listStatus" style="margin-bottom:12px;">
+      <button type="button" class="sel" data-k="all" onclick="setListFilter('status',this)">すべて</button>
+      <button type="button" data-k="unpaid" onclick="setListFilter('status',this)">未払い・未入金</button>
+      <button type="button" data-k="paid" onclick="setListFilter('status',this)">済み</button>
+    </div>
+    <div id="listArea"><div class="empty">まだ登録がありません</div></div>
+  </div>
+
+  <div class="panel" id="panel-summary">
+    <div class="month-select">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <span id="monthLabel"></span>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+    <div id="summaryArea"></div>
+    <button class="btn btn-ghost" onclick="exportCSV()">CSVをエクスポート(Excel用)</button>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SUPABASE_URL = "https://hxrycxlcsetpjfbwqybv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_dACRpnqVTz6aSsD2Nrz8Ag_7JmeA3s6";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const PROXY_URL = "https://medicom.co.jp/proxy.php";
+const PROXY_SECRET = "S-djkcI9lY9yqhWupxMrQct4f9xFyrSP";
+const BUCKET = 'kensetsu-invoices';
+
+let invoices = [];
+let kind = 'received';
+let viewMonth = new Date();
+let curFile = null;          // {blob, ext, previewUrl, base64, mediaType, isPdf}
+let listFilter = {kind:'all', status:'all'};
+
+const KIND_LABEL = {received:'受取', issued:'発行'};
+const yen = n => '¥' + Math.round(Number(n)||0).toLocaleString();
+const todayStr = () => { const d = new Date(Date.now()+9*3600*1000); return d.toISOString().slice(0,10); };
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+function monthKey(d){ return String(d).slice(0,7); }
+
+// ---- auth(店主・経理のみ。税理士は経理として入り、閲覧のみ) ----
+async function checkAuthAndInit(){
+  const { data:{session} } = await sb.auth.getSession();
+  if(session) showApp(); else showLogin();
+}
+function showLogin(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('mainWrap').style.display='none';
+}
+async function canUse(){
+  try{
+    const { data:{session} } = await sb.auth.getSession();
+    if(!session) return false;
+    const { data, error } = await sb.from('staff').select('role,active').eq('auth_user_id', session.user.id).maybeSingle();
+    if(error || !data) return false;
+    return !!data.active && ['owner','accounting'].includes(data.role);
+  }catch(e){ return false; }
+}
+function showNoAccess(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('mainWrap').style.display='none';
+  let el=document.getElementById('noAccess');
+  if(!el){
+    el=document.createElement('div'); el.id='noAccess';
+    el.style.cssText='max-width:420px;margin:80px auto;padding:24px;text-align:center;line-height:1.7;';
+    el.innerHTML='<div style="font-size:40px">🔒</div><div style="font-weight:700;font-size:17px;margin:8px 0">この画面を使える権限がありません</div><div style="font-size:13px;color:#5B5546;margin-bottom:16px">建設請求書は、店主・経理のみ使えます。</div><a href="./home.html">ホームへ戻る</a>';
+    document.body.appendChild(el);
+  }
+  el.style.display='block';
+}
+async function showApp(){
+  if(!(await canUse())){ showNoAccess(); return; }
+  const na=document.getElementById('noAccess'); if(na) na.style.display='none';
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('mainWrap').style.display='block';
+  loadData();
+}
+async function doLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const password=document.getElementById('login-password').value;
+  const errEl=document.getElementById('loginErr'); errEl.innerHTML='';
+  if(!email||!password){ errEl.innerHTML='<div class="err">メールアドレスとパスワードを入力してください</div>'; return; }
+  const btn=document.getElementById('loginBtn'); btn.disabled=true; btn.textContent='ログイン中...';
+  try{
+    const { error } = await sb.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    showApp();
+  }catch(e){ errEl.innerHTML=`<div class="err">ログインに失敗しました: ${escapeHtml(e.message||String(e))}</div>`; }
+  btn.disabled=false; btn.textContent='ログイン';
+}
+document.getElementById('loginBtn').addEventListener('click', doLogin);
+document.getElementById('login-password').addEventListener('keydown',e=>{ if(e.key==='Enter') doLogin(); });
+sb.auth.onAuthStateChange((ev)=>{ if(ev==='SIGNED_OUT') showLogin(); });
+
+// ---- tabs ----
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-'+tab.dataset.tab).classList.add('active');
+    if(tab.dataset.tab==='list') renderList();
+    if(tab.dataset.tab==='summary') renderSummary();
+  });
+});
+
+// ---- data ----
+async function loadData(){
+  const { data, error } = await sb.from('construction_invoices').select('*').order('invoice_date',{ascending:false}).order('created_at',{ascending:false});
+  if(error){ toast('読み込みに失敗しました: '+(error.message||error)); invoices=[]; }
+  else invoices = (data||[]).map(r=>({...r, amount:Number(r.amount), tax:r.tax==null?null:Number(r.tax)}));
+  renderList(); renderSummary();
+}
+
+// ---- 入力 ----
+function selectKind(btn){
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel'); kind = btn.dataset.kind;
+  const lbl=document.getElementById('f-party-label'); if(lbl) lbl.textContent = partyLabel();
+}
+function partyLabel(){ return kind==='issued' ? '請求先(元請け・取引先)' : '請求元(支払先)'; }
+
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.width,h=img.height;
+        if(w>h){ if(w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; } } else { if(h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; } }
+        const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+        c.toBlob(b=>resolve({blob:b, base64:c.toDataURL('image/jpeg',quality).split(',')[1]}), 'image/jpeg', quality);
+      };
+      img.onerror=()=>reject(new Error('画像のデコードに失敗しました(HEIC等は非対応の場合があります)'));
+      img.src=reader.result;
+    };
+    reader.onerror=()=>reject(new Error('ファイルの読み込みに失敗しました'));
+    reader.readAsDataURL(file);
+  });
+}
+function readAsBase64(file){
+  return new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(r.result.split(',')[1]); r.onerror=()=>reject(new Error('ファイルの読み込みに失敗しました')); r.readAsDataURL(file); });
+}
+
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const file=e.target.files[0]; if(!file) return;
+  document.getElementById('formArea').innerHTML='';
+  document.getElementById('previewArea').innerHTML='<div class="loading">ファイルを読み込み中...</div>';
+  try{
+    const isPdf = file.type==='application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if(isPdf){
+      curFile = { blob:file, ext:'pdf', base64: await readAsBase64(file), mediaType:'application/pdf', isPdf:true };
+      document.getElementById('previewArea').innerHTML=`<div class="preview-card"><div style="font-size:13px;">📄 ${escapeHtml(file.name)}</div><button class="btn btn-primary" id="analyzeBtn">AIで解析する</button><div id="analyzeErr"></div></div>`;
+    }else{
+      const c = await compressImage(file,1600,0.8);
+      curFile = { blob:c.blob, ext:'jpg', base64:c.base64, mediaType:'image/jpeg', isPdf:false };
+      document.getElementById('previewArea').innerHTML=`<div class="preview-card"><img src="data:image/jpeg;base64,${c.base64}"><button class="btn btn-primary" id="analyzeBtn">AIで解析する</button><div id="analyzeErr"></div></div>`;
+    }
+    document.getElementById('analyzeBtn').addEventListener('click', runAnalyze);
+  }catch(err){ document.getElementById('previewArea').innerHTML=`<div class="err">${escapeHtml(err.message||String(err))}</div>`; curFile=null; }
+});
+
+function manualEntry(){
+  curFile=null; document.getElementById('previewArea').innerHTML='';
+  renderForm({date:todayStr(), due:'', party:'', project:'', invoice_no:'', amount:'', tax:'', memo:''});
+}
+
+async function runAnalyze(){
+  const btn=document.getElementById('analyzeBtn'); btn.disabled=true; btn.textContent='解析中...(1分ほどかかることがあります)';
+  document.getElementById('analyzeErr').innerHTML='';
+  try{
+    const block = curFile.isPdf
+      ? {type:'document', source:{type:'base64', media_type:'application/pdf', data:curFile.base64}}
+      : {type:'image', source:{type:'base64', media_type:'image/jpeg', data:curFile.base64}};
+    const partyHint = kind==='issued'
+      ? '自社(株式会社メディコム)が発行した請求書です。請求を受ける側(宛名)を party にしてください。'
+      : '取引先から自社(株式会社メディコム)に届いた請求書です。請求書を発行した側(差出人)を party にしてください。';
+    const response = await fetch(PROXY_URL,{
+      method:'POST', headers:{'Content-Type':'application/json','X-App-Secret':PROXY_SECRET},
+      body: JSON.stringify({ model:'claude-sonnet-5', max_tokens:2048, messages:[{role:'user', content:[ block, {type:'text', text:
+`この請求書を読み取ってください。${partyHint}
+出力は必ずJSONオブジェクト1つのみ。前置き・説明・バッククォートは一切不要。読み取れない項目は null。
+
+{
+  "date": "請求日 YYYY-MM-DD",
+  "due": "支払期限・入金期限 YYYY-MM-DD(無ければ null)",
+  "party": "取引先の会社名・屋号",
+  "project": "工事名・件名(無ければ null)",
+  "invoice_no": "請求書番号(無ければ null)",
+  "amount": 税込の請求合計金額(数値のみ・カンマなし),
+  "tax": 消費税額(数値のみ。無ければ null),
+  "memo": "20文字程度の簡潔な摘要(無ければ null)"
+}`} ]}] })
+    });
+    if(!response.ok){ const t=await response.text(); throw new Error(`APIエラー(${response.status}): ${t.slice(0,200)}`); }
+    const data = await response.json();
+    if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
+    let clean = data.content.map(b=>b.text||'').join('').replace(/```json|```/g,'').trim();
+    const s=clean.indexOf('{'), e=clean.lastIndexOf('}');
+    if(s===-1||e<s) throw new Error('AIの応答を読み取れませんでした。もう一度お試しください');
+    const ex = JSON.parse(clean.slice(s,e+1));
+    renderForm({ date:ex.date||todayStr(), due:ex.due||'', party:ex.party||'', project:ex.project||'', invoice_no:ex.invoice_no||'', amount:ex.amount==null?'':ex.amount, tax:ex.tax==null?'':ex.tax, memo:ex.memo||'' });
+    btn.textContent='再解析する'; btn.disabled=false;
+  }catch(err){
+    console.error(err);
+    document.getElementById('analyzeErr').innerHTML=`<div class="err">${escapeHtml(err.message||String(err))}</div>`;
+    btn.disabled=false; btn.textContent='AIで解析する';
+  }
+}
+
+function renderForm(x){
+  const v = s => escapeHtml(s);
+  document.getElementById('formArea').innerHTML = `
+    <div class="preview-card">
+      <div class="row2">
+        <div class="field"><label>請求日</label><input type="date" id="f-date" value="${v(x.date)}"></div>
+        <div class="field"><label>支払・入金期限</label><input type="date" id="f-due" value="${v(x.due)}"></div>
+      </div>
+      <div class="field"><label id="f-party-label">${partyLabel()}</label><input type="text" id="f-party" value="${v(x.party)}"></div>
+      <div class="field"><label>工事名・件名</label><input type="text" id="f-project" value="${v(x.project)}"></div>
+      <div class="row2">
+        <div class="field"><label>請求金額(税込)</label><input type="number" id="f-amount" inputmode="numeric" value="${v(x.amount)}"></div>
+        <div class="field"><label>うち消費税</label><input type="number" id="f-tax" inputmode="numeric" value="${v(x.tax)}"></div>
+      </div>
+      <div class="field"><label>請求書番号</label><input type="text" id="f-no" value="${v(x.invoice_no)}"></div>
+      <div class="field"><label>摘要・メモ</label><input type="text" id="f-memo" value="${v(x.memo)}"></div>
+      <button class="btn btn-stamp" id="saveBtn" onclick="saveInvoice()">確 認 して登録</button>
+    </div>`;
+}
+
+let isSaving=false;
+async function saveInvoice(){
+  if(isSaving) return;
+  const date=document.getElementById('f-date').value, due=document.getElementById('f-due').value||null;
+  const party=document.getElementById('f-party').value.trim(), project=document.getElementById('f-project').value.trim()||null;
+  const amount=Number(document.getElementById('f-amount').value)||0;
+  const taxRaw=document.getElementById('f-tax').value; const tax = taxRaw===''?null:Number(taxRaw);
+  const invoice_no=document.getElementById('f-no').value.trim()||null, memo=document.getElementById('f-memo').value.trim()||null;
+  if(!date || !party || !amount){ toast('請求日・取引先・金額を入力してください'); return; }
+  isSaving=true; const btn=document.getElementById('saveBtn'); btn.disabled=true; btn.textContent='登録中...';
+  try{
+    const { data:{session} } = await sb.auth.getSession();
+    const row = { kind, status:'unpaid', invoice_date:date, due_date:due, party, project, invoice_no, amount, tax, memo, file_ext: curFile?curFile.ext:null, created_by: session.user.id };
+    const { data, error } = await sb.from('construction_invoices').insert([row]).select();
+    if(error) throw error;
+    const saved = data[0];
+    if(curFile){
+      const { error:upErr } = await sb.storage.from(BUCKET).upload(`${saved.id}.${curFile.ext}`, curFile.blob, {contentType:curFile.mediaType, upsert:true});
+      if(upErr){ console.error(upErr); toast('登録はできましたが、原本ファイルの保存に失敗しました'); await sb.from('construction_invoices').update({file_ext:null}).eq('id',saved.id); saved.file_ext=null; }
+      else toast('登録しました');
+    }else toast('登録しました');
+    curFile=null; document.getElementById('fileInput').value='';
+    document.getElementById('previewArea').innerHTML=''; document.getElementById('formArea').innerHTML='';
+    await loadData();
+  }catch(e){
+    toast('登録に失敗しました: '+(e.message||e));
+    btn.disabled=false; btn.textContent='確 認 して登録';
+  }finally{ isSaving=false; }
+}
+
+// ---- 一覧 ----
+function setListFilter(which, btn){
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel'); listFilter[which]=btn.dataset.k; renderList();
+}
+function isOverdue(r){ return r.status==='unpaid' && r.due_date && r.due_date < todayStr(); }
+function renderList(){
+  const area=document.getElementById('listArea');
+  const rows = invoices.filter(r=>(listFilter.kind==='all'||r.kind===listFilter.kind)&&(listFilter.status==='all'||r.status===listFilter.status));
+  if(rows.length===0){ area.innerHTML='<div class="empty">該当する請求書はありません</div>'; return; }
+  area.innerHTML = rows.map(r=>{
+    const st = r.status==='paid' ? (r.kind==='issued'?'入金済み':'支払済み') : (isOverdue(r)?'期限超過':(r.kind==='issued'?'未入金':'未払い'));
+    const stColor = r.status==='paid' ? 'var(--sage)' : (isOverdue(r)?'var(--stamp)':'var(--ink-soft)');
+    const paidLabel = r.status==='paid' ? '未にする' : (r.kind==='issued'?'入金済みにする':'支払済みにする');
+    return `<div class="receipt">
+      <div class="receipt-top"><div style="min-width:0;">
+        <div class="receipt-date">${r.invoice_date}${r.due_date?' ・ 期限 '+r.due_date:''}</div>
+        <div class="receipt-vendor">${escapeHtml(r.party)}</div>
+        <span class="receipt-cat">${KIND_LABEL[r.kind]}</span> <span style="font-size:11px;font-weight:700;color:${stColor};">${st}${r.status==='paid'&&r.paid_date?' ('+r.paid_date+')':''}</span>
+        <div class="receipt-pay">${r.project?escapeHtml(r.project):''}${r.invoice_no?' ・ No.'+escapeHtml(r.invoice_no):''}${r.memo?' ・ '+escapeHtml(r.memo):''}</div>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+          ${r.file_ext?`<button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="viewFile('${r.id}','${r.file_ext}')">原本を見る</button>`:''}
+          <button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;" onclick="togglePaid('${r.id}')">${paidLabel}</button>
+          <button class="btn btn-ghost" style="width:auto;padding:5px 12px;margin-top:0;font-size:11px;color:var(--stamp);border-color:var(--stamp);" onclick="deleteInvoice('${r.id}')">削除</button>
+        </div></div>
+        <div class="receipt-amount">${yen(r.amount)}</div></div></div>`;
+  }).join('');
+}
+async function togglePaid(id){
+  const r=invoices.find(x=>x.id===id); if(!r) return;
+  const patch = r.status==='paid' ? {status:'unpaid', paid_date:null} : {status:'paid', paid_date:todayStr()};
+  const { error } = await sb.from('construction_invoices').update(patch).eq('id',id);
+  if(error){ toast('更新に失敗しました: '+(error.message||error)); return; }
+  Object.assign(r,patch); renderList(); renderSummary();
+}
+async function deleteInvoice(id){
+  const r=invoices.find(x=>x.id===id); if(!r) return;
+  if(!confirm(`「${r.party} ${yen(r.amount)}」を削除しますか？(元に戻せません)`)) return;
+  if(r.file_ext) await sb.storage.from(BUCKET).remove([`${id}.${r.file_ext}`]);
+  const { error } = await sb.from('construction_invoices').delete().eq('id',id);
+  if(error){ toast('削除に失敗しました: '+(error.message||error)); return; }
+  invoices=invoices.filter(x=>x.id!==id); renderList(); renderSummary(); toast('削除しました');
+}
+async function viewFile(id, ext){
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(`${id}.${ext}`, 300);
+  if(error||!data){ toast('原本を開けませんでした'); return; }
+  window.open(data.signedUrl,'_blank');
+}
+
+// ---- 集計 ----
+function shiftMonth(n){ viewMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()+n, 1); renderSummary(); }
+function renderSummary(){
+  const ym = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('monthLabel').textContent = `${viewMonth.getFullYear()}年${viewMonth.getMonth()+1}月`;
+  const sum = (arr)=>arr.reduce((a,b)=>a+b.amount,0);
+  const mo = invoices.filter(r=>monthKey(r.invoice_date)===ym);
+  const iss = mo.filter(r=>r.kind==='issued'), rec = mo.filter(r=>r.kind==='received');
+  const unIss = invoices.filter(r=>r.kind==='issued'&&r.status==='unpaid'), unRec = invoices.filter(r=>r.kind==='received'&&r.status==='unpaid');
+  const od = invoices.filter(isOverdue);
+  document.getElementById('summaryArea').innerHTML = `
+    <div class="sum-block"><div class="sum-title">${viewMonth.getMonth()+1}月の請求日分</div>
+      <div class="sum-row"><span>発行(請求した金額)</span><span>${yen(sum(iss))}(${iss.length}件)</span></div>
+      <div class="sum-row"><span>受取(請求された金額)</span><span>${yen(sum(rec))}(${rec.length}件)</span></div>
+      <div class="sum-row" style="font-weight:700;"><span>差額(発行−受取)</span><span>${yen(sum(iss)-sum(rec))}</span></div></div>
+    <div class="sum-block"><div class="sum-title">現在の未入金・未払い(全期間)</div>
+      <div class="sum-row"><span>未入金(発行)</span><span>${yen(sum(unIss))}(${unIss.length}件)</span></div>
+      <div class="sum-row"><span>未払い(受取)</span><span>${yen(sum(unRec))}(${unRec.length}件)</span></div>
+      <div class="sum-row" style="color:${od.length?'var(--stamp)':'inherit'};"><span>期限超過</span><span>${od.length}件 ${yen(sum(od))}</span></div></div>`;
+}
+function exportCSV(){
+  const head=['種類','請求日','期限','取引先','工事名','請求書番号','金額(税込)','消費税','状況','入金・支払日','摘要'];
+  const rows = invoices.map(r=>[KIND_LABEL[r.kind],r.invoice_date,r.due_date||'',r.party,r.project||'',r.invoice_no||'',r.amount,r.tax==null?'':r.tax,r.status==='paid'?'済み':'未',r.paid_date||'',r.memo||'']);
+  const csv = [head,...rows].map(a=>a.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const blob = new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='建設請求書.csv'; a.click();
+}
+
+checkAuthAndInit();
+</script>
+</body>
+</html>
